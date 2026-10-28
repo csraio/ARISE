@@ -69,6 +69,8 @@ Modules (namespace `arise::<module>`), dependencies point downward only:
   Regenerate golden files only on purpose, with a commit message explaining why.
 - Speed targets (Stages 1–2: 500 candidates < 50 ms; full: 12 candidates < 1 s)
   are guarded by benchmarks in `bench/`.
+- The commit gate itself is tested by `scripts/verify_commit_gate.sh` (also in CI).
+- Mutation testing (Mull) is planned for CI once more modules exist.
 
 ## Data files
 - Built by `scripts/*.py`, consumed by C++. The C++ side owns and validates
@@ -85,6 +87,30 @@ Modules (namespace `arise::<module>`), dependencies point downward only:
   (`feat(aniso): add Johnson–Bovey ring current`).
 - Never commit build output, data dumps or secrets. Never bypass hooks.
 - Significant design choices get a short ADR in `docs/adr/`.
+- CI (`.github/workflows/ci.yml`) builds and tests every push and PR on Linux
+  and macOS, in `dev` and `asan`. `main` only takes changes through green PRs.
+
+## Safe experiments & shell hygiene
+Lessons from a real incident: a deliberately broken test was "reverted" with
+`git checkout` on a file that had never been committed, so nothing was restored,
+and the failure was hidden by `;` chaining and `2>/dev/null`.
+
+- **Isolate experiments.** Never edit, break or stage live working-tree files to
+  test tooling (hooks, CI, test harnesses). Use `scripts/verify_commit_gate.sh` or
+  a throwaway `git worktree add --detach "$(mktemp -d)" HEAD`.
+- **Commit or stash before experimenting**, so every file has a git copy to
+  return to. `git checkout -- <file>` cannot restore a file git has never seen.
+- **Chain dependent steps with `&&`**, not `;`, and use `set -eu` in scripts,
+  so the first failure stops everything after it.
+- **Never silence cleanup or revert commands.** No `2>/dev/null`, `|| true` or
+  `>/dev/null 2>&1` on anything whose failure would leave the tree changed.
+- **Always clean up.** Scripts that create temp dirs, worktrees or branches remove
+  them in a `trap '…' EXIT`.
+- **Verify state, not strings.** After a revert or experiment, prove the tree is
+  unchanged with `git status --porcelain` (empty) and `git diff --exit-code`,
+  not by grepping for a pattern.
+- **Stage files explicitly.** Prefer `git add <paths>` over `git add -A`, and
+  check `git status --short` before every commit.
 
 ## For Claude
 - Tests come first. Before implementing or changing code, write rigorous
