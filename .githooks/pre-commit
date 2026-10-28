@@ -1,0 +1,31 @@
+#!/bin/sh
+# ARISE pre-commit gate: format check on staged C++ files, then build + run all tests.
+# Enable once per clone:  git config core.hooksPath .githooks
+set -eu
+
+repo_root=$(git rev-parse --show-toplevel)
+cd "$repo_root"
+
+# 1. Formatting (staged C++ files only)
+staged_cpp=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(cpp|hpp|h|cc)$' || true)
+if [ -n "$staged_cpp" ]; then
+    if command -v clang-format >/dev/null 2>&1; then
+        echo "pre-commit: checking formatting..."
+        # shellcheck disable=SC2086
+        clang-format --dry-run --Werror $staged_cpp
+    else
+        echo "pre-commit: WARNING clang-format not installed; skipping format check." >&2
+    fi
+fi
+
+# 2. Build + tests
+if [ ! -f CMakeLists.txt ]; then
+    echo "pre-commit: no CMakeLists.txt yet; skipping build and tests."
+    exit 0
+fi
+
+echo "pre-commit: configuring, building and running tests..."
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev --output-on-failure
+echo "pre-commit: all tests passed."

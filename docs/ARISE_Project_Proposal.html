@@ -1,0 +1,173 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>ARISE Project Proposal</title>
+<style>
+  @page { size: Letter; margin: 0.9in 0.9in 0.9in 0.9in; }
+  body { font-family: "Times New Roman", Times, serif; font-size: 11.5pt; line-height: 1.42; color: #111; }
+  h1 { font-size: 18pt; text-align: center; margin: 0 0 2pt; }
+  .kicker { text-align: center; font-size: 11pt; letter-spacing: 0.04em; text-transform: uppercase; color: #444; margin-bottom: 6pt; }
+  .subtitle { text-align: center; font-style: italic; color: #333; margin: 0 0 18pt; }
+  h2 { font-size: 13.5pt; margin: 18pt 0 6pt; border-bottom: 1px solid #999; padding-bottom: 2pt; break-after: avoid; }
+  h3 { font-size: 12pt; margin: 12pt 0 4pt; break-after: avoid; }
+  p { margin: 0 0 7pt; text-align: justify; }
+  ul, ol { margin: 0 0 8pt 0; padding-left: 20pt; }
+  li { margin-bottom: 3pt; }
+  .label { font-weight: bold; }
+  .eq { text-align: center; font-family: "Cambria Math", "Times New Roman", serif; font-size: 12pt; margin: 6pt 0 8pt; }
+  table { width: 100%; border-collapse: collapse; margin: 6pt 0 10pt; font-size: 10pt; break-inside: avoid; }
+  th, td { border: 1px solid #888; padding: 4pt 5pt; vertical-align: top; text-align: left; }
+  th { background: #e8e8e8; }
+  .note { font-size: 10pt; color: #333; border-left: 3px solid #999; padding: 4pt 8pt; margin: 6pt 0 10pt; background: #f5f5f5; }
+  .refs li { font-size: 10pt; margin-bottom: 2pt; }
+</style>
+</head>
+<body>
+
+<div class="kicker">Academic &amp; Technical Project Proposal &middot; Revision 2</div>
+<h1>ARISE: Anisotropy-Resolved Isomer Scoring Engine</h1>
+<p class="subtitle">Formerly ADSEE (Anisotropy-Aware De Novo Structural Elucidation Engine)</p>
+
+<h2>1. Executive Summary &amp; Objective</h2>
+<p>Computer-Assisted Structure Elucidation (CASE) has two main strands today. One is a mature, mostly rule-based family of tools: commercial systems such as ACD/Structure Elucidator, Mnova Structure Elucidation and Bruker CMC-se, and open systems such as LSD/pyLSD and Sherlock. The other is a fast-growing body of machine-learning and LLM-agent work. Rule-based systems are interpretable, but they typically rank candidate structures with chemical shifts predicted from bond connectivity alone (for example HOSE codes), most often for <sup>13</sup>C. Such predictors cannot see through-space effects. In folded small molecules with several aromatic rings, ring currents shield or deshield protons that sit above or beside a ring. This can shift <sup>1</sup>H resonances by more than 1&nbsp;ppm, enough to make the wrong regioisomer the top-ranked match. Recent ML and agentic methods report strong benchmark results, but they remain opaque and their authors report run-to-run variability.</p>
+<p>ARISE (Anisotropy-Resolved Isomer Scoring Engine) addresses this gap. It is a lightweight, deterministic and fully explainable <span class="label">scoring and re-ranking engine</span>. It decides between closely related candidate structures, chiefly regioisomers, using <sup>1</sup>H data and a physics-based 3D anisotropy correction. Candidates come from a local compound library filtered by exact mass, or from a SMILES list produced by another tool such as Sherlock or NMRfilter. ARISE then outputs a ranked list with a per-stage score breakdown, so every decision can be traced back to experimental evidence. The target is under one second end to end on consumer hardware. ARISE is delivered as a native command-line tool and as a serverless WebAssembly page that runs offline.</p>
+<p class="note"><span class="label">Why the name changed.</span> The original title claimed <em>de novo</em> elucidation, but the pipeline searches a library or re-ranks supplied candidates; it does not build new structures. The new name describes the actual contribution: resolving isomers using anisotropy. Generating structures de novo (see Section 8) is planned as a v2 extension.</p>
+
+<h2>2. Related Work &amp; Positioning</h2>
+<p>A review of current open-source and commercial CASE tools shaped the scope of ARISE. The closest open system, <span class="label">Sherlock</span> (Molecules, 2023), solves most of its 45 test problems in 1&ndash;10&nbsp;s. However:</p>
+<ul>
+  <li>it ranks candidates on <sup>13</sup>C shifts only;</li>
+  <li>it does not model 3D geometry or anisotropy, and its test set used planar structures;</li>
+  <li>it requires a molecular formula and HSQC, HMBC and COSY spectra;</li>
+  <li>it runs as a Docker server (8&nbsp;GB+ RAM recommended);</li>
+  <li>five of its 45 test problems could not be solved within three hours because generating every candidate structure is combinatorially explosive.</li>
+</ul>
+<p><span class="label">NMRfilter</span> already combines candidates retrieved by mass with predicted HSQC/HMBC matching. Physical ring-current models (Johnson&ndash;Bovey, Haigh&ndash;Mallion) are standard in protein shift predictors and in Abraham&rsquo;s CHARGE program, and DFT-based methods such as DP4+ handle anisotropy from first principles at a cost of hours per molecule. ARISE therefore positions itself as <em>complementary</em> to these tools:</p>
+<table>
+  <tr><th style="width:40%">Gap in existing open CASE tools</th><th>ARISE&rsquo;s response</th></tr>
+  <tr><td>Ranking based on <sup>13</sup>C only</td><td>Ranks primarily on <sup>1</sup>H, where ring-current effects are largest</td></tr>
+  <tr><td>No 3D geometry, stereochemistry or anisotropy</td><td>3D conformer ensembles with a physical ring-current and bond-anisotropy correction</td></tr>
+  <tr><td>Connectivity-only prediction cannot separate folded regioisomers</td><td>Regioisomer separation in folded multi-aromatic molecules is the primary benchmark target</td></tr>
+  <tr><td>Requires a full 2D data set (HSQC + HMBC + COSY) and formula</td><td>Works from HRMS + <sup>1</sup>H alone; 2D data refine the ranking when available</td></tr>
+  <tr><td>Server/Docker deployment; data leave the client</td><td>Static WebAssembly page plus native CLI; offline, data stay local</td></tr>
+  <tr><td>Exhaustive structure generation can take hours</td><td>Bounded candidate sets; sub-second scoring</td></tr>
+</table>
+<p>Because ARISE accepts external SMILES lists, it can directly re-rank the top-<em>N</em> output of Sherlock or NMRfilter. This makes the comparison with existing tools cooperative rather than adversarial.</p>
+
+<h2>3. Core Logic &amp; Algorithmic Pipeline</h2>
+<p>ARISE prunes candidates in stages, from coarse to fine. Each stage is more precise and more expensive than the one before it, and works on a smaller pool. Every stage records its score contribution, so the final ranking can be fully explained. Candidates are ranked by total score rather than discarded outright, so one ambiguous measurement cannot eliminate the correct structure.</p>
+
+<h3>Stage 1: Candidate Sourcing &amp; Exact-Mass Filtration</h3>
+<p>There are two entry points. (a) <span class="label">Library mode:</span> a high-resolution monoisotopic mass (&plusmn;0.0005&nbsp;Da, Orbitrap/Q-TOF) is converted into candidate molecular formulas. Formulas are filtered with the Seven Golden Rules (element-ratio limits, nitrogen rule, isotope-pattern fit) and with carbon and proton counts read from the NMR data. The surviving formulas are then matched in a single linear scan against a packed local flat-file library curated from open repositories (PubChem, ChEBI, COCONUT), typically leaving about 100&ndash;500 isomers. (b) <span class="label">Re-ranking mode:</span> a SMILES list from an external tool is loaded directly.</p>
+
+<h3>Stage 2: 1D Spin-System Checklist (Graph-Topological Filter)</h3>
+<p>Users tag clearly visible spin systems in the high-field <sup>1</sup>H spectrum, such as a para-disubstituted ring, an isolated ethyl group or a <em>tert</em>-butyl singlet. A curated dictionary translates each tag into a SMARTS pattern, and RDKit substructure matching tests every candidate. Candidates whose bond graph cannot produce a tagged spin system are heavily penalized. No chemical shift simulation is needed at this stage, which typically reduces the pool to about 5&ndash;12 candidates.</p>
+
+<h3>Stage 3: Baseline <sup>1</sup>H Shift Prediction</h3>
+<p>Each surviving candidate receives baseline <sup>1</sup>H shift predictions from a HOSE-code lookup table built from the openly available nmrshiftdb2 assigned spectra. Each proton&rsquo;s bonded neighborhood is encoded out to 4&ndash;6 bond spheres. When no match is found at the full depth, the lookup falls back to fewer spheres. The method is deterministic, transparent and fast, and the table ships as a packed flat file.</p>
+
+<h3>Stage 4: Physical Anisotropy Correction</h3>
+<p>HOSE codes describe connectivity only, so they cannot capture through-space shielding from rings far apart in the bond graph. For each candidate, ARISE generates an ensemble of 20&ndash;50 3D conformers with RDKit&rsquo;s ETKDG method, refines them with the MMFF94 force field, and averages the results with Boltzmann weights. Two classical models supply the correction:</p>
+<ul>
+  <li><span class="label">Aromatic ring currents:</span> the Johnson&ndash;Bovey model (or the Haigh&ndash;Mallion model), which remains accurate close to the ring face, where the point-dipole approximation breaks down.</li>
+  <li><span class="label">Bond anisotropy (C=O, C&equiv;C, C=C):</span> the McConnell point-dipole equation,</li>
+</ul>
+<p class="eq">&Delta;&sigma; = (&Delta;&chi; / 3r<sup>3</sup>) &middot; (1 &minus; 3cos<sup>2</sup>&theta;)</p>
+<p>where &Delta;&chi; is the magnetic susceptibility anisotropy of the group, <em>r</em> is the distance from the group&rsquo;s center to the proton, and &theta; is the angle to the group&rsquo;s symmetry axis. To avoid counting effects already present in the HOSE baseline twice, the correction is applied only to proton&ndash;group pairs more than four bonds apart. The corrected <sup>1</sup>H shifts are compared with the experimental peak list, and the resulting error is the main scoring term for separating regioisomers.</p>
+
+<h3>Stage 5: 2D Correlation Scoring (The Ruler Method)</h3>
+<p>When HSQC and HMBC peak lists are provided, ARISE first assigns peaks to atoms. Each HSQC cross-peak is matched to a specific C&ndash;H pair of the candidate by weighted bipartite matching (the Hungarian algorithm), using the Stage 3&ndash;4 predicted shifts as costs. HMBC correlations are then scored against bond distances in the candidate&rsquo;s graph, precomputed by breadth-first search (BFS) from each atom:</p>
+<ul>
+  <li>2&ndash;3 bonds: no penalty;</li>
+  <li>4 bonds: small penalty (these correlations are common in aromatic and W-shaped geometries);</li>
+  <li>5 or more bonds, or no path: large penalty.</li>
+</ul>
+<p>This is constrained peak assignment followed by graph-distance scoring, not subgraph isomorphism, and it runs in polynomial time on molecules of this size.</p>
+
+<h2>4. Target Minimalist Architecture</h2>
+<ul>
+  <li><span class="label">Reference prototype (Python + RDKit):</span> a throwaway implementation used to test the scientific hypothesis (Phase 0) and to generate reference outputs for testing the native engine.</li>
+  <li><span class="label">Core engine (C++20):</span> a native engine with tight data layouts and SIMD-friendly geometry loops for the conformer and anisotropy stage, which is the only computationally heavy step.</li>
+  <li><span class="label">Cheminformatics backend:</span> RDKit&rsquo;s C++ API, limited to the modules required (GraphMol, SmilesParse, Substruct, DistGeomHelpers, ForceFieldHelpers) to keep the WebAssembly download small.</li>
+  <li><span class="label">Interfaces:</span> a CLI comes first (<code>arise --mass &hellip; --h1 peaks.csv [--hsqc &hellip;] [--hmbc &hellip;] [--features &hellip;] [--candidates list.smi]</code>). A minimal single-page web front end later calls the same entry point.</li>
+  <li><span class="label">Compilation target:</span> the same codebase is compiled to WebAssembly with Emscripten for a static, serverless single-page app. The first build is single-threaded, since Stage 4 handles only 5&ndash;12 candidates. Multithreading would require cross-origin isolation headers (COOP/COEP) from the static host.</li>
+  <li><span class="label">Data storage:</span> packed local flat files (candidate library, HOSE <sup>1</sup>H table, SMARTS dictionary). No database server is needed, and the tool runs in offline, air-gapped environments.</li>
+</ul>
+
+<h2>5. Algorithmic Data &amp; Pipeline Blueprint Matrix</h2>
+<table>
+  <tr><th>Pipeline stage</th><th>Primary input</th><th>Algorithmic core</th><th>Complexity</th><th>Execution</th></tr>
+  <tr><td>1. Sourcing &amp; mass filter</td><td>HRMS mass (Da) or SMILES list</td><td>Formula rules + linear library scan</td><td>O(N)</td><td>Streaming CPU scan</td></tr>
+  <tr><td>2. Spin-system checklist</td><td>User spin-system tags &rarr; SMARTS</td><td>Substructure matching</td><td>O(M&middot;K)</td><td>Parallelizable CPU filter</td></tr>
+  <tr><td>3. Baseline <sup>1</sup>H prediction</td><td>Candidate graphs</td><td>HOSE-code table lookup with sphere fallback</td><td>O(A) per molecule</td><td>Hash lookups</td></tr>
+  <tr><td>4. Anisotropy correction</td><td>Conformer ensembles</td><td>Johnson&ndash;Bovey / McConnell, Boltzmann-weighted</td><td>O(C&middot;H&middot;G)</td><td>CPU / SIMD loops</td></tr>
+  <tr><td>5. 2D scoring</td><td>HSQC / HMBC peak lists</td><td>Hungarian assignment + BFS bond distances</td><td>O(n<sup>3</sup>) + O(V&middot;(V+E))</td><td>CPU, trivial at &lt;40 heavy atoms</td></tr>
+</table>
+<p style="font-size:10pt">N = library entries; M = candidates; K = SMARTS patterns; A = atoms; C = conformers; H = protons; G = anisotropic groups; n = HSQC peaks; V, E = atoms and bonds.</p>
+
+<h2>6. Phase-Gate Development Blueprint</h2>
+<h3>Phase 0: Scientific Feasibility (Go/No-Go)</h3>
+<ul>
+  <li><span class="label">Milestone 0.1:</span> Assemble 20&ndash;40 sets of isomers with assigned experimental <sup>1</sup>H shifts where ring currents matter (cyclophanes, biaryls/atropisomers, folded aromatic amides, natural products with stacked rings), from nmrshiftdb2 and the supporting information of published papers.</li>
+  <li><span class="label">Milestone 0.2:</span> Implement the HOSE <sup>1</sup>H baseline and the conformer-ensemble anisotropy correction in Python.</li>
+  <li><span class="label">Milestone 0.3:</span> Compare top-1 accuracy, mean rank of the true isomer, and <sup>1</sup>H mean absolute error with and without the correction. <em>Gate:</em> proceed only if the correction gives a clear improvement on the anisotropy-heavy subset (target: at least 10&ndash;15 percentage points in top-1 accuracy).</li>
+</ul>
+<h3>Phase 1: Interfaces &amp; Data Foundation</h3>
+<ul>
+  <li><span class="label">Milestone 1.1:</span> Fix the input formats (<sup>1</sup>H peak list; optional HSQC/HMBC CSV; spin-system tags; SMILES or library candidates) and the ranked-output format with per-stage scores.</li>
+  <li><span class="label">Milestone 1.2:</span> Build the SMARTS spin-system dictionary (ortho/meta/para substitution, aromatic heterocycles, alkyl branch motifs).</li>
+  <li><span class="label">Milestone 1.3:</span> Build and pack the HOSE <sup>1</sup>H table and the mass-indexed candidate library.</li>
+</ul>
+<h3>Phase 2: Native C++ Engine &amp; CLI</h3>
+<ul>
+  <li><span class="label">Milestone 2.1:</span> Set up the CMake build linking RDKit, and write a zero-allocation streaming CSV reader for library scans.</li>
+  <li><span class="label">Milestone 2.2:</span> Port Stages 1&ndash;5. Speed targets: Stages 1&ndash;2 over 500 candidates in under 50&nbsp;ms; full pipeline on 12 candidates in under 1&nbsp;s.</li>
+  <li><span class="label">Milestone 2.3:</span> Test that native scores match the Python reference within tolerance across the Phase 0 dataset.</li>
+</ul>
+<h3>Phase 3: WebAssembly Deployment</h3>
+<ul>
+  <li><span class="label">Milestone 3.1:</span> Build RDKit (required modules only) and the engine with Emscripten.</li>
+  <li><span class="label">Milestone 3.2:</span> Build a minimal static page with a command-line-style interface. Verify identical rankings to the native CLI and correct operation with the network disabled.</li>
+</ul>
+<h3>Phase 4: Validation, Benchmarking &amp; Manuscript</h3>
+<ul>
+  <li><span class="label">Milestone 4.1:</span> Test on real historical spectral datasets, including blinded structure challenges provided by faculty.</li>
+  <li><span class="label">Milestone 4.2:</span> Benchmark against Sherlock, NMRfilter, the plain nmrshiftdb2 predictor and an ML predictor on the folded-aromatic regioisomer set, and run a re-ranking experiment on Sherlock&rsquo;s top-<em>N</em> output.</li>
+  <li><span class="label">Milestone 4.3:</span> Draft the manuscript, positioning ARISE as a fast, physics-based middle ground between connectivity-only prediction and DFT-level methods.</li>
+</ul>
+
+<h2>7. Risks &amp; Limitations</h2>
+<ul>
+  <li><span class="label">Scientific risk:</span> classical ring-current models may not separate isomers reliably enough. Phase 0 tests this before any engineering investment.</li>
+  <li><span class="label">Library-constrained:</span> in library mode, ARISE cannot find compounds absent from the library. Re-ranking mode and the v2 generator (Section 8) address this.</li>
+  <li><span class="label">Data coverage:</span> open assigned <sup>1</sup>H data are sparser than <sup>13</sup>C data, so HOSE lookups will fall back to shallower spheres more often.</li>
+  <li><span class="label">Conformational flexibility:</span> force-field ensembles may misjudge conformer populations for flexible or strongly solvated molecules.</li>
+  <li><span class="label">Stereochemistry:</span> only partly addressed through 3D conformers; full stereochemical assignment is out of scope for v1.</li>
+  <li><span class="label">Engineering:</span> a full WebAssembly build of RDKit with force-field support is the riskiest build task, so it is deliberately scheduled after the native engine is validated.</li>
+</ul>
+
+<h2>8. Future Work (v2)</h2>
+<ul>
+  <li>True <em>de novo</em> mode: connect an open-source structure generator (e.g., surge) constrained by Stage 2 fragments, so that ARISE scores generated structures instead of library entries.</li>
+  <li><sup>13</sup>C anisotropy terms and combined <sup>1</sup>H/<sup>13</sup>C scoring.</li>
+  <li>Multithreaded WebAssembly build for larger candidate pools.</li>
+</ul>
+
+<h2>9. Selected References</h2>
+<ol class="refs">
+  <li>Wenk, M. et al. Sherlock&mdash;A Free and Open-Source System for the Computer-Assisted Structure Elucidation of Organic Compounds from NMR Data. <em>Molecules</em> 2023, 28, 1448.</li>
+  <li>Nuzillard, J.-M.; Massiot, G. Logic for Structure Determination. <em>Tetrahedron</em> 1991, 47, 3655&ndash;3664.</li>
+  <li>Kuhn, S. et al. NMRfilter: compound identification using 2D NMR and predicted shifts. <em>Metabolomics</em> 2020. doi:10.1007/s11306-020-01748-1.</li>
+  <li>NMR-Solver: automated structure elucidation via large-scale spectral matching and physics-guided fragment optimization. <em>Nat. Commun.</em> 2026. doi:10.1038/s41467-026-71315-0.</li>
+  <li>Espejo Morales, I. et al. NMR Elucidation as an Agentic Search Problem, Not a Modeling Problem. ICML 2026; arXiv:2607.19406.</li>
+  <li>Kind, T.; Fiehn, O. Seven Golden Rules for heuristic filtering of molecular formulas obtained by accurate mass spectrometry. <em>BMC Bioinformatics</em> 2007, 8, 105.</li>
+  <li>Bremser, W. HOSE&mdash;a novel substructure code. <em>Anal. Chim. Acta</em> 1978, 103, 355&ndash;365.</li>
+  <li>Johnson, C. E.; Bovey, F. A. Calculation of nuclear magnetic resonance spectra of aromatic hydrocarbons. <em>J. Chem. Phys.</em> 1958, 29, 1012&ndash;1014.</li>
+  <li>McConnell, H. M. Theory of nuclear magnetic shielding in molecules. I. Long-range dipolar shielding of protons. <em>J. Chem. Phys.</em> 1957, 27, 226&ndash;229.</li>
+  <li>Free ligand 1D NMR conformational signatures to enhance structure-based drug design of a Mcl-1 inhibitor (AZD5991). <em>J. Med. Chem.</em> 2019. doi:10.1021/acs.jmedchem.9b00716.</li>
+  <li>McKay, B. D.; Yirik, M. A.; Steinbeck, C. Surge: a fast open-source chemical graph generator. <em>J. Cheminform.</em> 2022, 14, 24.</li>
+</ol>
+
+</body>
+</html>

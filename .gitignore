@@ -1,0 +1,16 @@
+# Build output
+build/
+out/
+.cache/
+compile_commands.json
+*.wasm
+
+# Python
+__pycache__/
+.venv/
+*.pyc
+
+# Editors / OS
+.vscode/
+.idea/
+.DS_Store
