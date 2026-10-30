@@ -80,12 +80,17 @@ namespace detail {
 
 [[nodiscard]] inline Result<void> check_conversion_inputs(double value, MegaHertz spectrometer) {
     if (!std::isfinite(spectrometer.value()) || spectrometer.value() <= 0.0) {
-        return Error{ErrorCode::InvalidArgument,
-                     "spectrometer frequency must be finite and positive, got " +
-                         std::to_string(spectrometer.value()) + " MHz"};
+        return Error{
+            .code = ErrorCode::InvalidArgument,
+            .message = "spectrometer frequency must be finite and positive, got " +
+                       std::to_string(spectrometer.value()) + " MHz",
+        };
     }
     if (!std::isfinite(value)) {
-        return Error{ErrorCode::InvalidArgument, "value to convert must be finite"};
+        return Error{
+            .code = ErrorCode::InvalidArgument,
+            .message = "value to convert must be finite",
+        };
     }
     return {};
 }

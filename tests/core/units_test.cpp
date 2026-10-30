@@ -123,7 +123,7 @@ TEST(UnitsConversion, PpmToHzReferenceValue) {
 }
 
 TEST(UnitsConversion, RoundTripIsStable) {
-    const Ppm original{3.1415926};
+    const Ppm original{7.2638419};
     const MegaHertz field{600.13};
     const auto hz = to_hz(original, field);
     ASSERT_TRUE(hz.ok());

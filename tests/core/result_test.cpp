@@ -1,5 +1,6 @@
-#include "arise/core/error.hpp"
 #include "arise/core/result.hpp"
+
+#include "arise/core/error.hpp"
 
 #include <gtest/gtest.h>
 
@@ -19,7 +20,7 @@ using arise::core::to_string;
 
 Result<int> parse_positive(int input) {
     if (input <= 0) {
-        return Error{ErrorCode::InvalidArgument, "input must be positive"};
+        return Error{.code = ErrorCode::InvalidArgument, .message = "input must be positive"};
     }
     return input;
 }
@@ -63,7 +64,7 @@ TEST(Result, SupportsMoveOnlyTypes) {
 }
 
 TEST(Result, MoveOnlyValueOrUsesFallbackOnFailure) {
-    Result<std::unique_ptr<int>> result{Error{ErrorCode::NotFound, "missing"}};
+    Result<std::unique_ptr<int>> result{Error{.code = ErrorCode::NotFound, .message = "missing"}};
     std::unique_ptr<int> owned = std::move(result).value_or(std::make_unique<int>(9));
     ASSERT_NE(owned, nullptr);
     EXPECT_EQ(*owned, 9);
@@ -71,14 +72,16 @@ TEST(Result, MoveOnlyValueOrUsesFallbackOnFailure) {
 
 TEST(Result, IsCopyableWhenValueIsCopyable) {
     const Result<std::string> original{std::string{"copy me"}};
-    const Result<std::string> copy = original;  // NOLINT(performance-unnecessary-copy-initialization)
+    // NOLINTNEXTLINE(performance-unnecessary-copy-initialization)
+    const Result<std::string> copy = original;
     ASSERT_TRUE(copy.ok());
     EXPECT_EQ(copy.value(), "copy me");
     EXPECT_EQ(original.value(), "copy me");
 }
 
 TEST(Result, ErrorCanBeMovedOut) {
-    Result<int> result{Error{ErrorCode::ParseError, "line 12: unexpected token"}};
+    Result<int> result{
+        Error{.code = ErrorCode::ParseError, .message = "line 12: unexpected token"}};
     ASSERT_FALSE(result.ok());
     const Error error = std::move(result).error();
     EXPECT_EQ(error.code, ErrorCode::ParseError);
@@ -89,7 +92,7 @@ TEST(Result, ErrorCanBeMovedOut) {
 
 Result<void> validate(bool should_pass) {
     if (!should_pass) {
-        return Error{ErrorCode::OutOfRange, "value out of range"};
+        return Error{.code = ErrorCode::OutOfRange, .message = "value out of range"};
     }
     return {};
 }
@@ -112,6 +115,9 @@ TEST(ResultVoid, ReportsFailureWithError) {
 }
 
 // ---- ErrorCode names ---------------------------------------------------------
+
+// Error codes are stored in every Error; keep the enum one byte wide.
+static_assert(sizeof(ErrorCode) == 1);
 
 constexpr std::array kAllCodes{
     ErrorCode::InvalidArgument, ErrorCode::ParseError,     ErrorCode::NotFound,

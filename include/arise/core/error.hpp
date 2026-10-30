@@ -1,12 +1,13 @@
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
 namespace arise::core {
 
 /// Category of a recoverable failure. Exhaustive: `to_string` must handle every value.
-enum class ErrorCode {
+enum class ErrorCode : std::uint8_t {
     InvalidArgument,
     ParseError,
     NotFound,

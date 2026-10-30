@@ -17,7 +17,7 @@ template <typename T>
 class [[nodiscard]] Result {
 public:
     // Implicit by design so functions can `return value;` or `return Error{...};`.
-    Result(T value) : storage_{std::in_place_index<0>, std::move(value)} {}  // NOLINT
+    Result(T value) : storage_{std::in_place_index<0>, std::move(value)} {}      // NOLINT
     Result(Error error) : storage_{std::in_place_index<1>, std::move(error)} {}  // NOLINT
 
     [[nodiscard]] bool ok() const noexcept { return storage_.index() == 0; }
@@ -69,11 +69,11 @@ public:
     [[nodiscard]] explicit operator bool() const noexcept { return ok(); }
 
     [[nodiscard]] const Error& error() const& noexcept {
-        assert(!ok());
+        assert(error_.has_value());
         return *error_;
     }
     [[nodiscard]] Error&& error() && noexcept {
-        assert(!ok());
+        assert(error_.has_value());
         return std::move(*error_);
     }
 
