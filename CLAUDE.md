@@ -30,6 +30,7 @@ Modules (namespace `arise::<module>`), dependencies point downward only:
 
 ## Build & test
     git config core.hooksPath .githooks      # once per clone
+    sh scripts/install_dev_tools.sh          # once per machine: pinned clang-format/clang-tidy
     cmake --preset dev && cmake --build --preset dev
     ctest --preset dev --output-on-failure
     cmake --preset asan ...                  # sanitizers
@@ -49,7 +50,9 @@ Modules (namespace `arise::<module>`), dependencies point downward only:
   for physical quantities across module boundaries.
 - Naming: `snake_case` functions/variables, `PascalCase` types,
   `kConstant` constants, `member_` private members, files `snake_case.hpp/.cpp`.
-- Formatting by `.clang-format`; lint by `.clang-tidy`. Do not hand-format.
+- Formatting by `.clang-format`; lint by `.clang-tidy` (`scripts/run_clang_tidy.sh`).
+  Do not hand-format. Tool versions are pinned in `scripts/dev-tools-requirements.txt`;
+  CI checks both.
 
 ## Portability (WebAssembly) rules
 - Core modules: no file I/O, no threads, no globals with mutable state, no

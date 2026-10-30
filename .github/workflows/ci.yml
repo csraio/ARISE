@@ -44,6 +44,29 @@ jobs:
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
 
+  lint:
+    name: format + clang-tidy
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Install pinned clang-format and clang-tidy
+        run: |
+          sh scripts/install_dev_tools.sh
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Check formatting
+        run: clang-format --dry-run --Werror $(git ls-files '*.hpp' '*.cpp')
+
+      - name: Configure
+        run: cmake --preset dev
+
+      - name: clang-tidy
+        run: sh scripts/run_clang_tidy.sh
+
   commit-gate:
     name: commit gate self-test
     runs-on: ubuntu-24.04
