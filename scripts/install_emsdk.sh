@@ -10,7 +10,8 @@ set -eu
 emsdk_version=6.0.13
 # The SDK bundles Node 24, which needs macOS >= 13.5; Node 22 LTS runs on macOS 11+.
 # Pinned on every OS so local and CI test runs use the same JavaScript engine.
-node_tool=node-22.16.0-64bit
+node_version=22.16.0
+node_tool=node-$node_version-64bit
 python_archive=python-3.13.3-0-macos-x86_64.tar.gz
 python_sha256=d3f30e1b78354d6f74fae951175dc2bd22b386aafeab13edd6ac7c9613b0d33c
 python_url=https://storage.googleapis.com/webassembly/emscripten-releases-builds/deps/$python_archive
@@ -66,15 +67,15 @@ fi
 "$emsdk_dir/emsdk" install "$emsdk_version" "$node_tool"
 "$emsdk_dir/emsdk" activate "$emsdk_version" "$node_tool"
 
-# 4. Prove the activated toolchain runs on this machine.
-# shellcheck disable=SC1091
-. "$emsdk_dir/emsdk_env.sh" >/dev/null
+# 4. Prove the activated toolchain runs on this machine. Exact paths, not emsdk_env.sh:
+# that script cannot locate itself under dash (/bin/sh on Debian/Ubuntu).
+emcc="$emsdk_dir/upstream/emscripten/emcc"
+node="$emsdk_dir/node/${node_version}_64bit/bin/node"
 # Capture before printing: `sh` has no pipefail, so `emcc ... | head` would hide a crash.
-emcc_version=$(emcc --version)
-# emsdk does not put node on PATH; Emscripten and CMake use $EMSDK_NODE.
-node_version=$("$EMSDK_NODE" --version)
+emcc_version=$("$emcc" --version)
+node_reported=$("$node" --version)
 echo "install_emsdk: $(echo "$emcc_version" | sed -n 1p)"
-echo "install_emsdk: node $node_version at $EMSDK_NODE"
+echo "install_emsdk: node $node_reported at $node"
 
 echo "install_emsdk: done. In each shell that builds wasm, run:"
 echo "    . $emsdk_dir/emsdk_env.sh"

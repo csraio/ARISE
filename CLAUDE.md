@@ -119,6 +119,10 @@ and the failure was hidden by `;` chaining and `2>/dev/null`.
 - **Verify state, not strings.** After a revert or experiment, prove the tree is
   unchanged with `git status --porcelain` (empty) and `git diff --exit-code`,
   not by grepping for a pattern.
+- **Scripts are POSIX `sh`; test them with `dash`.** On macOS `sh` is really bash, so
+  bashisms pass locally and fail in CI (Ubuntu's `/bin/sh` is dash). Run
+  `dash scripts/<name>.sh` before committing a script. `sh` has no `pipefail`:
+  capture a command's output before piping it, so a crash cannot hide behind `| head`.
 - **Stage files explicitly.** Prefer `git add <paths>` over `git add -A`, and
   check `git status --short` before every commit.
 
