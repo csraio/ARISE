@@ -5,6 +5,7 @@
 #include "arise/core/result.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <optional>
 #include <span>
 #include <string_view>
@@ -17,6 +18,9 @@ struct ColumnSpec {
     std::string_view name;
     bool required;
 };
+
+/// Whether a table with a header but no data rows is valid.
+enum class EmptyTable : std::uint8_t { Reject, Allow };
 
 /// A data row. `values[i]` and `texts[i]` belong to `ColumnSpec` i and are empty when
 /// that optional column is absent from the file. Texts view the caller's input.
@@ -33,10 +37,11 @@ struct TableRow {
 ///   duplicates, and must include every required column.
 /// - Each data row has one field per header column; fields are trimmed of spaces and
 ///   tabs, unquoted, and parsed with `parse_decimal`.
-/// - At least one data row.
+/// - At least one data row, unless `empty` is EmptyTable::Allow.
 /// Errors are ParseError and name the 1-based physical line.
 [[nodiscard]] core::Result<std::vector<TableRow>> read_numeric_table(
-    std::string_view text, std::span<const ColumnSpec> columns);
+    std::string_view text, std::span<const ColumnSpec> columns,
+    EmptyTable empty = EmptyTable::Reject);
 
 /// "line N: what", with the given code.
 [[nodiscard]] core::Error error_at(core::ErrorCode code, std::size_t line, std::string_view what);

@@ -133,8 +133,15 @@ TEST(DeptCsv, ShiftOutsideTheCarbonWindowIsOutOfRange) {
                  {"line 2", "300"});
 }
 
+TEST(DeptCsv, HeaderOnlyIsAnEmptySpectrum) {
+    // A DEPT-90 of a molecule without CH carbons (e.g. 2-butanone) has no peaks at all.
+    const auto result = parse_dept_csv("# DEPT-90\nshift_ppm,intensity\n");
+    ASSERT_TRUE(result.ok()) << result.error().message;
+    EXPECT_TRUE(result.value().empty());
+}
+
 TEST(DeptCsv, StructuralErrorsComeFromTheSharedFormat) {
-    expect_error(parse_dept_csv, "shift_ppm,intensity\n", ErrorCode::ParseError, {"no peaks"});
+    expect_error(parse_dept_csv, "", ErrorCode::ParseError, {"header"});
     expect_error(parse_dept_csv, "shift_ppm,intensity\n29.0\n", ErrorCode::ParseError,
                  {"line 2", "expected 2 fields", "got 1"});
     expect_error(parse_dept_csv, "shift_ppm,intensity\n29.0,nan\n", ErrorCode::ParseError,

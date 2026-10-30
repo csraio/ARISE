@@ -87,7 +87,8 @@ core::Result<std::vector<CarbonPeak>> parse_carbon_csv(std::string_view text) {
 }
 
 core::Result<std::vector<DeptPeak>> parse_dept_csv(std::string_view text) {
-    return convert_rows<DeptPeak>(detail::read_numeric_table(text, kDeptColumns), to_dept_peak);
+    return convert_rows<DeptPeak>(
+        detail::read_numeric_table(text, kDeptColumns, detail::EmptyTable::Allow), to_dept_peak);
 }
 
 }  // namespace arise::io

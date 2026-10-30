@@ -178,7 +178,8 @@ core::Error error_at(core::ErrorCode code, std::size_t line, std::string_view wh
 }
 
 core::Result<std::vector<TableRow>> read_numeric_table(std::string_view text,
-                                                       std::span<const ColumnSpec> columns) {
+                                                       std::span<const ColumnSpec> columns,
+                                                       EmptyTable empty) {
     if (text.starts_with(kByteOrderMark)) {
         text.remove_prefix(kByteOrderMark.size());
     }
@@ -204,7 +205,7 @@ core::Result<std::vector<TableRow>> read_numeric_table(std::string_view text,
         }
         rows.push_back(std::move(row).value());
     }
-    if (rows.empty()) {
+    if (rows.empty() && empty == EmptyTable::Reject) {
         return error_at(core::ErrorCode::ParseError, lines.front().number,
                         "no peaks after the header");
     }

@@ -40,7 +40,8 @@ inline constexpr core::Ppm kMaxCarbonShift{250.0};
 
 /// Parses a DEPT peak list: the shared peak-list format with columns `shift_ppm` and
 /// `intensity`, both required. The intensity carries the phase, so it must be nonzero;
-/// shifts must lie in the 13C window. Out-of-range values are OutOfRange.
+/// shifts must lie in the 13C window. Out-of-range values are OutOfRange. A header with
+/// no rows is a valid, empty spectrum (a DEPT-90 of a molecule without CH carbons).
 [[nodiscard]] core::Result<std::vector<DeptPeak>> parse_dept_csv(std::string_view text);
 
 }  // namespace arise::io
