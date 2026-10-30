@@ -1,15 +1,43 @@
 #!/bin/sh
 # ARISE pre-commit gate: format check on staged C++ files, then build + run all tests.
 # Enable once per clone:  git config core.hooksPath .githooks
+#
+# The gate checks exactly what is being committed. Staged files (the index) are
+# exported to a snapshot under .git/arise-gate/, so unstaged edits and untracked
+# files can neither break nor rescue a commit. The snapshot and its build directory
+# persist between commits, and only changed files are rewritten, so builds stay
+# incremental.
 set -eu
 
-repo_root=$(git rev-parse --show-toplevel)
-cd "$repo_root"
+if ! command -v rsync >/dev/null 2>&1; then
+    echo "pre-commit: rsync is required to snapshot the index." >&2
+    exit 1
+fi
 
-# 1. Formatting (staged C++ files only)
-# Two steps so a git failure stops the hook instead of being masked by `|| true`.
+gate_dir="$(git rev-parse --absolute-git-dir)/arise-gate"
+snapshot="$gate_dir/src"
+export_dir=$(mktemp -d "${TMPDIR:-/tmp}/arise-index.XXXXXX")
+cleanup() {
+    rm -rf "$export_dir"
+}
+trap cleanup EXIT
+trap 'exit 130' INT TERM
+
+# Staged C++ files, listed before leaving the work tree (git commands do not work
+# from inside .git). Two steps so a git failure stops the hook instead of being
+# masked by `|| true`.
 staged=$(git diff --cached --name-only --diff-filter=ACMR)
 staged_cpp=$(echo "$staged" | grep -E '\.(cpp|hpp|h|cc)$' || true)
+
+# 0. Snapshot the index. --checksum without -t leaves unchanged files (and their
+#    timestamps) alone; build/ is excluded so the cached build survives --delete.
+git checkout-index --all --prefix="$export_dir/"
+mkdir -p "$snapshot"
+rsync -r -l -p --checksum --delete --exclude=/build/ "$export_dir/" "$snapshot/"
+echo "pre-commit: testing the staged snapshot in $snapshot"
+cd "$snapshot"
+
+# 1. Formatting (staged C++ files only, as staged)
 if [ -n "$staged_cpp" ]; then
     if command -v clang-format >/dev/null 2>&1; then
         echo "pre-commit: checking formatting..."

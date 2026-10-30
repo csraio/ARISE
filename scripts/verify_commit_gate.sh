@@ -2,7 +2,11 @@
 # Self-test of the pre-commit gate. Runs entirely inside a throwaway git worktree of
 # HEAD, so the caller's working tree is never modified.
 #   Check A: the hook accepts clean HEAD.
-#   Check B: the hook rejects HEAD plus a deliberately failing canary test.
+#   Check B: the hook rejects a staged, deliberately failing canary test.
+#   Check C: an untracked file cannot rescue a commit (the gate tests the index).
+#   Check D: an unstaged breaking edit cannot fail a clean commit (same reason).
+# ARISE_GATE_HOOK overrides the hook under test (default: the worktree's own
+# .githooks/pre-commit), so a new hook can be tested before it is committed.
 set -eu
 
 repo_root=$(git rev-parse --show-toplevel)
@@ -22,33 +26,74 @@ trap 'exit 130' INT TERM
 
 git -C "$repo_root" worktree add --detach --quiet "$worktree" HEAD
 cd "$worktree"
+hook=${ARISE_GATE_HOOK:-$worktree/.githooks/pre-commit}
+echo "verify_commit_gate: testing $hook"
 
 failures=0
+fail() {
+    echo "  FAIL: $1"
+    if [ "${2:-}" = "show-log" ]; then
+        sed 's/^/    /' "$log"
+    fi
+    failures=$((failures + 1))
+}
+
+# Restores the worktree and its index to HEAD between checks.
+reset_worktree() {
+    git reset --quiet --hard HEAD
+    git clean --quiet -d --force
+}
+
+# Formatted the way clang-format wants it, so Check B fails on the test, not on style.
+append_canary_test() {
+    printf '\n%s\n%s\n%s\n' 'TEST(GateCanary, DeliberateFailure) {' \
+        '    FAIL() << "canary: the commit gate must reject this";' '}' >>tests/core/result_test.cpp
+}
 
 echo "Check A: gate accepts clean HEAD ..."
-if .githooks/pre-commit >"$log" 2>&1; then
+if "$hook" >"$log" 2>&1; then
     echo "  PASS"
 else
-    echo "  FAIL: hook rejected clean HEAD. Hook output:"
-    sed 's/^/    /' "$log"
-    failures=$((failures + 1))
+    fail "hook rejected clean HEAD. Hook output:" show-log
 fi
 
-echo "Check B: gate rejects a failing test ..."
-cat >>tests/core/result_test.cpp <<'EOF'
-
-TEST(GateCanary, DeliberateFailure) { FAIL() << "canary: the commit gate must reject this"; }
-EOF
-if .githooks/pre-commit >"$log" 2>&1; then
-    echo "  FAIL: hook accepted a tree with a failing test."
-    failures=$((failures + 1))
+echo "Check B: gate rejects a staged failing test ..."
+append_canary_test
+git add tests/core/result_test.cpp
+if "$hook" >"$log" 2>&1; then
+    fail "hook accepted a staged failing test."
 elif grep -q "GateCanary.DeliberateFailure" "$log"; then
     echo "  PASS"
 else
-    echo "  FAIL: hook failed, but not because of the canary test. Hook output:"
-    sed 's/^/    /' "$log"
-    failures=$((failures + 1))
+    fail "hook failed, but not because of the canary test. Hook output:" show-log
 fi
+reset_worktree
+
+echo "Check C: an untracked file cannot rescue a commit ..."
+# Stage a build reference to a source file that exists only in the working tree.
+printf '%s\n' '#include <gtest/gtest.h>' 'TEST(GateCanary, Untracked) { SUCCEED(); }' \
+    >tests/core/gate_untracked_test.cpp
+sed 's/    result_test.cpp/    result_test.cpp\
+    gate_untracked_test.cpp/' tests/core/CMakeLists.txt >"$tmp_dir/CMakeLists.txt"
+cp "$tmp_dir/CMakeLists.txt" tests/core/CMakeLists.txt
+git add tests/core/CMakeLists.txt
+if "$hook" >"$log" 2>&1; then
+    fail "hook accepted a commit that only builds thanks to an untracked file."
+elif grep -q "gate_untracked_test.cpp" "$log"; then
+    echo "  PASS"
+else
+    fail "hook failed, but not because of the missing file. Hook output:" show-log
+fi
+reset_worktree
+
+echo "Check D: an unstaged breaking edit cannot fail a clean commit ..."
+append_canary_test
+if "$hook" >"$log" 2>&1; then
+    echo "  PASS"
+else
+    fail "hook rejected a clean index because of an unstaged edit. Hook output:" show-log
+fi
+reset_worktree
 
 if [ "$failures" -ne 0 ]; then
     echo "verify_commit_gate: $failures check(s) failed."

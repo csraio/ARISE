@@ -82,7 +82,9 @@ stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wa
   Regenerate golden files only on purpose, with a commit message explaining why.
 - Speed targets (Stages 1–2: 500 candidates < 50 ms; full: 12 candidates < 1 s)
   are guarded by benchmarks in `bench/`.
-- The commit gate itself is tested by `scripts/verify_commit_gate.sh` (also in CI).
+- The commit gate tests exactly the staged snapshot (exported to `.git/arise-gate/`),
+  so unstaged edits and untracked files can neither break nor rescue a commit.
+  The gate itself is tested by `scripts/verify_commit_gate.sh` (also in CI).
 - Mutation testing (Mull) is planned for CI once more modules exist.
 
 ## Data files
