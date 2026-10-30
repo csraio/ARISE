@@ -34,6 +34,13 @@ staged_cpp=$(echo "$staged" | grep -E '\.(cpp|hpp|h|cc)$' || true)
 git checkout-index --all --prefix="$export_dir/"
 mkdir -p "$snapshot"
 rsync -r -l -p --checksum --delete --exclude=/build/ "$export_dir/" "$snapshot/"
+
+# git runs hooks with repo-local variables such as GIT_INDEX_FILE set. Any git the
+# build starts (FetchContent cloning GoogleTest) would inherit them and act on this
+# repository instead of its own clone. The index is exported, so drop them all.
+# shellcheck disable=SC2046
+unset $(git rev-parse --local-env-vars)
+
 echo "pre-commit: testing the staged snapshot in $snapshot"
 cd "$snapshot"
 
