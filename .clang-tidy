@@ -1,4 +1,8 @@
 ---
+# pro-bounds-avoid-unchecked-container-access is off: it flags every operator[] and
+# suggests .at(), which throws (exceptions are banned across ARISE modules). Debug
+# builds instead enable standard-library hardening, so out-of-range operator[] traps
+# at runtime in every test run (see CMakeLists.txt).
 Checks: >
   -*,
   bugprone-*,
@@ -12,7 +16,8 @@ Checks: >
   -modernize-use-trailing-return-type,
   -modernize-use-nodiscard,
   -readability-identifier-length,
-  -readability-magic-numbers
+  -readability-magic-numbers,
+  -cppcoreguidelines-pro-bounds-avoid-unchecked-container-access
 WarningsAsErrors: '*'
 HeaderFilterRegex: '(include|src|tests|apps)/.*'
 CheckOptions:

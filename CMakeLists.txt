@@ -21,6 +21,13 @@ if(NOT MSVC)
     add_compile_options(-ffp-contract=off)
 endif()
 
+# Debug builds trap on out-of-range operator[] and other library precondition
+# violations: libstdc++ (GCC/Linux) and libc++ >= 18 (Emscripten, newer Xcode).
+# Older libc++ ignores the macro. Replaces clang-tidy's blanket ban on operator[].
+add_compile_definitions(
+    $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>
+    $<$<CONFIG:Debug>:_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_DEBUG>)
+
 add_subdirectory(third-party)
 add_subdirectory(src)
 

@@ -46,6 +46,9 @@ stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wa
   `std::format` (Apple clang 14 lacks it; use fmt), and `<ranges>` beyond the basics.
 - RAII only; no raw `new`/`delete`; ownership with `std::unique_ptr`/values.
   Pass views (`std::span`, `std::string_view`) in, return values out.
+- Index with `operator[]`, not `.at()` (which throws). Debug builds harden the standard
+  library (`_GLIBCXX_ASSERTIONS`, `_LIBCPP_HARDENING_MODE`), so out-of-range access traps
+  in every test run instead of returning garbage.
 - `const` by default, `[[nodiscard]]` on functions returning results, `enum class`,
   `noexcept` where true. No macros except include guards (`#pragma once`).
 - Errors: `arise::Result<T>` (value or `Error`). RDKit exceptions are caught in
