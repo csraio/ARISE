@@ -1,0 +1,44 @@
+#pragma once
+// Internal to arise_io: the numeric CSV table format shared by every peak-list reader.
+
+#include "arise/core/error.hpp"
+#include "arise/core/result.hpp"
+
+#include <cstddef>
+#include <optional>
+#include <span>
+#include <string_view>
+#include <vector>
+
+namespace arise::io::detail {
+
+/// One column a reader understands.
+struct ColumnSpec {
+    std::string_view name;
+    bool required;
+};
+
+/// A data row. `values[i]` and `texts[i]` belong to `ColumnSpec` i and are empty when
+/// that optional column is absent from the file. Texts view the caller's input.
+struct TableRow {
+    std::size_t line;
+    std::vector<std::optional<double>> values;
+    std::vector<std::string_view> texts;
+};
+
+/// Reads a numeric table in the shared peak-list format:
+/// - UTF-8, optional byte-order mark, LF or CRLF line endings.
+/// - Blank lines and `#` comments are skipped but counted for line numbers.
+/// - The first remaining line is the header; its names must be known columns, without
+///   duplicates, and must include every required column.
+/// - Each data row has one field per header column; fields are trimmed of spaces and
+///   tabs, unquoted, and parsed with `parse_decimal`.
+/// - At least one data row.
+/// Errors are ParseError and name the 1-based physical line.
+[[nodiscard]] core::Result<std::vector<TableRow>> read_numeric_table(
+    std::string_view text, std::span<const ColumnSpec> columns);
+
+/// "line N: what", with the given code.
+[[nodiscard]] core::Error error_at(core::ErrorCode code, std::size_t line, std::string_view what);
+
+}  // namespace arise::io::detail

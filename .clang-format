@@ -12,6 +12,8 @@ IncludeBlocks: Regroup
 IncludeCategories:
   - Regex: '^"arise/'
     Priority: 1
+  - Regex: '^"[a-z_]+\.hpp"$'
+    Priority: 1
   - Regex: '^<gtest/|^<benchmark/|^<GraphMol/|^<fmt/'
     Priority: 2
   - Regex: '^<.*>'
