@@ -24,7 +24,8 @@ Design and scope: `docs/ARISE_Project_Proposal.pdf` (source: `.html`).
 - `third-party/` pinned dependencies (do not edit) · `docs/adr/` design decisions
 
 Modules (namespace `arise::<module>`), dependencies point downward only:
-`core` (types, units, Result) → `io` (CSV, packed binary formats) → `chem` (RDKit wrapper)
+`core` (types, units, Result) → `io` (CSV, packed binary formats)
+→ `nmr1d` (1D spectral interpretation, e.g. DEPT) → `chem` (RDKit wrapper)
 → `filter` (mass, SMARTS) → `predict` (HOSE 1H) → `aniso` (conformers, ring currents)
 → `nmr2d` (HSQC/HMBC scoring) → `pipeline` → `apps/*`.
 
