@@ -27,12 +27,26 @@
       "inherits": "dev",
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "wasm",
+      "displayName": "Debug WebAssembly (Emscripten) with runtime checks; source emsdk_env.sh first",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/wasm",
+      "toolchainFile": "$env{EMSDK}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_CROSSCOMPILING_EMULATOR": "$env{EMSDK_NODE}",
+        "CMAKE_CXX_FLAGS": "-fsanitize=undefined -fno-sanitize-recover=all",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=undefined -sASSERTIONS=2 -sSAFE_HEAP=1 -sSTACK_OVERFLOW_CHECK=2 -sALLOW_MEMORY_GROWTH=1"
+      }
     }
   ],
   "buildPresets": [
     { "name": "dev", "configurePreset": "dev" },
     { "name": "asan", "configurePreset": "asan" },
-    { "name": "release", "configurePreset": "release" }
+    { "name": "release", "configurePreset": "release" },
+    { "name": "wasm", "configurePreset": "wasm" }
   ],
   "testPresets": [
     {
@@ -50,6 +64,12 @@
     {
       "name": "release",
       "configurePreset": "release",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "wasm",
+      "configurePreset": "wasm",
       "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error" }
     }

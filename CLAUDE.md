@@ -34,7 +34,11 @@ Modules (namespace `arise::<module>`), dependencies point downward only:
     cmake --preset dev && cmake --build --preset dev
     ctest --preset dev --output-on-failure
     cmake --preset asan ...                  # sanitizers
-    emcmake cmake --preset wasm ...          # WebAssembly build
+    sh scripts/install_emsdk.sh              # once per machine: pinned Emscripten + Node 22
+    . ~/.local/share/emsdk/emsdk_env.sh      # per shell, then the wasm preset:
+    cmake --preset wasm && cmake --build --preset wasm && ctest --preset wasm
+The wasm preset runs the tests under Node with UBSan, SAFE_HEAP, ASSERTIONS=2 and
+stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wasm.
 
 ## C++ conventions
 - C++20, no compiler extensions. Allowed: concepts, `std::span`, `<bit>`,
@@ -61,7 +65,10 @@ Modules (namespace `arise::<module>`), dependencies point downward only:
   little-endian fields with a version header.
 - Determinism: seeded RNGs (seed from config), stable sorts with explicit
   tie-breaks, never let `unordered_*` iteration order reach output.
-- No `-ffast-math`. Floating-point tests compare with explicit tolerances.
+- No `-ffast-math`, and no FMA contraction (`-ffp-contract=off` is set globally;
+  arm64 clang would otherwise fuse `a*b+c` and change last bits). Floating-point
+  tests compare with explicit tolerances; `tests/core/platform_test.cpp` guards
+  the IEEE-754 assumptions.
 
 ## Testing
 - Each new public function gets tests in `tests/<module>/` in the same commit.

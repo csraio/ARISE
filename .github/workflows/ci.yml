@@ -17,7 +17,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04, macos-14]
-        preset: [dev, asan]
+        # release: optimizers expose bugs Debug hides (e.g. FMA contraction on arm64 macos-14).
+        preset: [dev, asan, release]
     steps:
       - uses: actions/checkout@v4
 
@@ -43,6 +44,31 @@ jobs:
 
       - name: Test
         run: ctest --preset ${{ matrix.preset }}
+
+  wasm:
+    name: wasm (Emscripten + Node)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/emsdk
+          key: emsdk-${{ runner.os }}-${{ hashFiles('scripts/install_emsdk.sh') }}
+
+      - name: Install pinned emsdk
+        run: sh scripts/install_emsdk.sh
+
+      - name: Configure, build, test (Node)
+        run: |
+          . "$HOME/.local/share/emsdk/emsdk_env.sh"
+          cmake --preset wasm
+          cmake --build --preset wasm
+          ctest --preset wasm
 
   lint:
     name: format + clang-tidy
