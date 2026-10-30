@@ -21,13 +21,15 @@ if [ "$(uname -s)" = "Darwin" ]; then
 fi
 
 cd "$repo_root"
-files=$(git ls-files 'src/*.cpp' 'tests/*.cpp' 'apps/*.cpp')
+# Tracked plus new (untracked, not ignored) files, so new code is checked before `git add`.
+files=$(git ls-files --cached --others --exclude-standard 'src/*.cpp' 'tests/*.cpp' 'apps/*.cpp')
 if [ -z "$files" ]; then
     echo "run_clang_tidy: no source files."
     exit 0
 fi
 
-echo "run_clang_tidy: $(clang-tidy --version | grep -i 'version' | head -n 1)"
+tidy_version=$(clang-tidy --version)  # captured so a broken binary fails here
+echo "run_clang_tidy: $(echo "$tidy_version" | grep -i 'version' | sed -n 1p)"
 failures=0
 for file in $files; do
     # shellcheck disable=SC2086

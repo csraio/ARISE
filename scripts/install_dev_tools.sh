@@ -27,7 +27,8 @@ for tool in clang-format clang-tidy; do
     fi
     ln -sf "$target" "$link"
     echo "install_dev_tools: $link -> $target"
-    "$link" --version | grep -i version
+    version=$("$link" --version)  # captured so a crash fails the script under set -e
+    echo "$version" | grep -i version
 done
 
 case ":$PATH:" in

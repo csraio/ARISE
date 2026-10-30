@@ -7,7 +7,9 @@ repo_root=$(git rev-parse --show-toplevel)
 cd "$repo_root"
 
 # 1. Formatting (staged C++ files only)
-staged_cpp=$(git diff --cached --name-only --diff-filter=ACMR | grep -E '\.(cpp|hpp|h|cc)$' || true)
+# Two steps so a git failure stops the hook instead of being masked by `|| true`.
+staged=$(git diff --cached --name-only --diff-filter=ACMR)
+staged_cpp=$(echo "$staged" | grep -E '\.(cpp|hpp|h|cc)$' || true)
 if [ -n "$staged_cpp" ]; then
     if command -v clang-format >/dev/null 2>&1; then
         echo "pre-commit: checking formatting..."
