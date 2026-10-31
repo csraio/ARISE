@@ -3,6 +3,7 @@
 
 #include "arise/core/error.hpp"
 #include "arise/core/result.hpp"
+#include "arise/core/units.hpp"
 
 #include <cstddef>
 #include <cstdint>
@@ -42,6 +43,20 @@ struct TableRow {
 [[nodiscard]] core::Result<std::vector<TableRow>> read_numeric_table(
     std::string_view text, std::span<const ColumnSpec> columns,
     EmptyTable empty = EmptyTable::Reject);
+
+/// A plausibility window for one nucleus, with a hint for values outside it.
+struct ShiftWindow {
+    std::string_view nucleus;
+    core::Ppm min;
+    core::Ppm max;
+    std::string_view hint;
+};
+
+/// The value of required column `column` (named `name`) as a shift inside `window`;
+/// otherwise OutOfRange naming the line, the column, the original text and the hint.
+[[nodiscard]] core::Result<core::Ppm> shift_in_window(const TableRow& row, std::size_t column,
+                                                      std::string_view name,
+                                                      const ShiftWindow& window);
 
 /// "line N: what", with the given code.
 [[nodiscard]] core::Error error_at(core::ErrorCode code, std::size_t line, std::string_view what);

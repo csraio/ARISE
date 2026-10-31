@@ -3,7 +3,6 @@
 #include "csv_table.hpp"
 
 #include <array>
-#include <cassert>
 #include <cstddef>
 #include <string>
 #include <utility>
@@ -19,24 +18,24 @@ constexpr std::array kColumns{
     detail::ColumnSpec{.name = "integral", .required = false},
 };
 
+constexpr detail::ShiftWindow kProtonWindow{
+    .nucleus = "1H",
+    .min = kMinProtonShift,
+    .max = kMaxProtonShift,
+    .hint = "is it a 13C shift or a value in Hz?",
+};
+
 core::Result<ObservedPeak> to_peak(const detail::TableRow& row) {
-    const auto shift_value = row.values[kShift];
-    assert(shift_value.has_value());  // required column: read_numeric_table guarantees it
-    const core::Ppm shift{*shift_value};
-    if (shift < kMinProtonShift || shift > kMaxProtonShift) {
-        return detail::error_at(core::ErrorCode::OutOfRange, row.line,
-                                "shift_ppm " + std::string{row.texts[kShift]} +
-                                    " is outside the plausible 1H window [" +
-                                    std::to_string(kMinProtonShift.value()) + ", " +
-                                    std::to_string(kMaxProtonShift.value()) +
-                                    "] ppm; is it a 13C shift or a value in Hz?");
+    auto shift = detail::shift_in_window(row, kShift, "shift_ppm", kProtonWindow);
+    if (!shift.ok()) {
+        return std::move(shift).error();
     }
     const auto integral = row.values[kIntegral];
     if (integral.has_value() && *integral <= 0.0) {
         return detail::error_at(core::ErrorCode::OutOfRange, row.line,
                                 "integral must be > 0, got " + std::string{row.texts[kIntegral]});
     }
-    return ObservedPeak{.shift = shift, .integral = integral};
+    return ObservedPeak{.shift = shift.value(), .integral = integral};
 }
 
 }  // namespace

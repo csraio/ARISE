@@ -1,56 +1,17 @@
 #include "csv_table.hpp"
 
 #include "arise/io/number.hpp"
+#include "text_lines.hpp"
 
+#include <cassert>
 #include <string>
 #include <utility>
 
 namespace arise::io::detail {
 namespace {
 
-constexpr std::string_view kByteOrderMark = "\xEF\xBB\xBF";
-
-// A line that holds data or the header, with its 1-based physical line number.
-struct Line {
-    std::size_t number;
-    std::string_view text;
-};
-
 std::string quoted(std::string_view text) {
     return "'" + std::string{text} + "'";
-}
-
-std::string_view trim(std::string_view text) noexcept {
-    constexpr std::string_view kBlank = " \t";
-    const auto first = text.find_first_not_of(kBlank);
-    if (first == std::string_view::npos) {
-        return {};
-    }
-    text.remove_suffix(text.size() - 1 - text.find_last_not_of(kBlank));
-    text.remove_prefix(first);
-    return text;
-}
-
-// Splits on LF (dropping one trailing CR) and keeps only header and data lines:
-// blank lines and `#` comments are skipped but still counted.
-std::vector<Line> content_lines(std::string_view text) {
-    std::vector<Line> lines;
-    std::size_t number = 0;
-    while (!text.empty()) {
-        ++number;
-        const auto newline = text.find('\n');
-        std::string_view raw = text.substr(0, newline);
-        text = newline == std::string_view::npos ? std::string_view{} : text.substr(newline + 1);
-        if (!raw.empty() && raw.back() == '\r') {
-            raw.remove_suffix(1);
-        }
-        const auto content = trim(raw);
-        if (content.empty() || content.front() == '#') {
-            continue;
-        }
-        lines.push_back(Line{.number = number, .text = raw});
-    }
-    return lines;
 }
 
 std::vector<std::string_view> split_fields(std::string_view line) {
@@ -177,12 +138,25 @@ core::Error error_at(core::ErrorCode code, std::size_t line, std::string_view wh
     };
 }
 
+core::Result<core::Ppm> shift_in_window(const TableRow& row, std::size_t column,
+                                        std::string_view name, const ShiftWindow& window) {
+    const auto value = row.values[column];
+    assert(value.has_value());  // only for required columns
+    const core::Ppm shift{*value};
+    if (shift < window.min || shift > window.max) {
+        return error_at(core::ErrorCode::OutOfRange, row.line,
+                        std::string{name} + " " + std::string{row.texts[column]} +
+                            " is outside the plausible " + std::string{window.nucleus} +
+                            " window [" + std::to_string(window.min.value()) + ", " +
+                            std::to_string(window.max.value()) + "] ppm; " +
+                            std::string{window.hint});
+    }
+    return shift;
+}
+
 core::Result<std::vector<TableRow>> read_numeric_table(std::string_view text,
                                                        std::span<const ColumnSpec> columns,
                                                        EmptyTable empty) {
-    if (text.starts_with(kByteOrderMark)) {
-        text.remove_prefix(kByteOrderMark.size());
-    }
     const auto lines = content_lines(text);
     if (lines.empty()) {
         return core::Error{

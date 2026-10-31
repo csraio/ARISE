@@ -24,18 +24,15 @@ constexpr std::array kDeptColumns{
     detail::ColumnSpec{.name = "intensity", .required = true},
 };
 
+constexpr detail::ShiftWindow kCarbonWindow{
+    .nucleus = "13C",
+    .min = kMinCarbonShift,
+    .max = kMaxCarbonShift,
+    .hint = "is it a value in Hz?",
+};
+
 core::Result<core::Ppm> carbon_shift(const detail::TableRow& row) {
-    const auto value = row.values[kShift];
-    assert(value.has_value());  // required column: read_numeric_table guarantees it
-    const core::Ppm shift{*value};
-    if (shift < kMinCarbonShift || shift > kMaxCarbonShift) {
-        return detail::error_at(
-            core::ErrorCode::OutOfRange, row.line,
-            "shift_ppm " + std::string{row.texts[kShift]} +
-                " is outside the plausible 13C window [" + std::to_string(kMinCarbonShift.value()) +
-                ", " + std::to_string(kMaxCarbonShift.value()) + "] ppm; is it a value in Hz?");
-    }
-    return shift;
+    return detail::shift_in_window(row, kShift, "shift_ppm", kCarbonWindow);
 }
 
 // Converts every row with `convert`, stopping at the first error.
