@@ -16,8 +16,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04, macos-14]
-        # release: optimizers expose bugs Debug hides (e.g. FMA contraction on arm64 macos-14).
+        # Pinned images, not *-latest, so the compiler only changes on purpose.
+        # macos-14 is retired on 2026-11-02 (actions/runner-images#13518).
+        os: [ubuntu-24.04, macos-15]
+        # release: optimizers expose bugs Debug hides (e.g. FMA contraction on arm64 macOS).
         preset: [dev, asan, release]
     steps:
       - uses: actions/checkout@v4
