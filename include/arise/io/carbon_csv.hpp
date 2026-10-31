@@ -22,7 +22,7 @@ struct CarbonPeak {
 /// phase: in DEPT-135, CH and CH3 point up (positive) and CH2 points down (negative).
 struct DeptPeak {
     core::Ppm shift;
-    double intensity;
+    double intensity{};
 
     friend bool operator==(const DeptPeak&, const DeptPeak&) = default;
 };

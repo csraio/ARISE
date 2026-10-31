@@ -1,5 +1,6 @@
 add_executable(arise_io_tests
     carbon_csv_test.cpp
+    correlation_csv_test.cpp
     number_test.cpp
     peak_csv_test.cpp)
 

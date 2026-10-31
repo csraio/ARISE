@@ -35,25 +35,6 @@ core::Result<core::Ppm> carbon_shift(const detail::TableRow& row) {
     return detail::shift_in_window(row, kShift, "shift_ppm", kCarbonWindow);
 }
 
-// Converts every row with `convert`, stopping at the first error.
-template <typename Peak, typename Convert>
-core::Result<std::vector<Peak>> convert_rows(core::Result<std::vector<detail::TableRow>> rows,
-                                             Convert convert) {
-    if (!rows.ok()) {
-        return std::move(rows).error();
-    }
-    std::vector<Peak> peaks;
-    peaks.reserve(rows.value().size());
-    for (const auto& row : rows.value()) {
-        auto peak = convert(row);
-        if (!peak.ok()) {
-            return std::move(peak).error();
-        }
-        peaks.push_back(peak.value());
-    }
-    return peaks;
-}
-
 core::Result<CarbonPeak> to_carbon_peak(const detail::TableRow& row) {
     auto shift = carbon_shift(row);
     if (!shift.ok()) {
@@ -79,12 +60,12 @@ core::Result<DeptPeak> to_dept_peak(const detail::TableRow& row) {
 }  // namespace
 
 core::Result<std::vector<CarbonPeak>> parse_carbon_csv(std::string_view text) {
-    return convert_rows<CarbonPeak>(detail::read_numeric_table(text, kCarbonColumns),
-                                    to_carbon_peak);
+    return detail::convert_rows<CarbonPeak>(detail::read_numeric_table(text, kCarbonColumns),
+                                            to_carbon_peak);
 }
 
 core::Result<std::vector<DeptPeak>> parse_dept_csv(std::string_view text) {
-    return convert_rows<DeptPeak>(
+    return detail::convert_rows<DeptPeak>(
         detail::read_numeric_table(text, kDeptColumns, detail::EmptyTable::Allow), to_dept_peak);
 }
 

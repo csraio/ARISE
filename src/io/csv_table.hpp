@@ -10,6 +10,7 @@
 #include <optional>
 #include <span>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace arise::io::detail {
@@ -57,6 +58,25 @@ struct ShiftWindow {
 [[nodiscard]] core::Result<core::Ppm> shift_in_window(const TableRow& row, std::size_t column,
                                                       std::string_view name,
                                                       const ShiftWindow& window);
+
+// Converts every row with `convert`, stopping at the first error.
+template <typename Peak, typename Convert>
+core::Result<std::vector<Peak>> convert_rows(core::Result<std::vector<TableRow>> rows,
+                                             Convert convert) {
+    if (!rows.ok()) {
+        return std::move(rows).error();
+    }
+    std::vector<Peak> peaks;
+    peaks.reserve(rows.value().size());
+    for (const auto& row : rows.value()) {
+        auto peak = convert(row);
+        if (!peak.ok()) {
+            return std::move(peak).error();
+        }
+        peaks.push_back(peak.value());
+    }
+    return peaks;
+}
 
 /// "line N: what", with the given code.
 [[nodiscard]] core::Error error_at(core::ErrorCode code, std::size_t line, std::string_view what);
