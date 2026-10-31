@@ -1,5 +1,6 @@
 add_library(arise_core
-    error.cpp)
+    error.cpp
+    formula.cpp)
 add_library(arise::core ALIAS arise_core)
 
 target_include_directories(arise_core

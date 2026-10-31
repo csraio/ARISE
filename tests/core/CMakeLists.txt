@@ -1,6 +1,7 @@
 add_executable(arise_core_tests
     units_test.cpp
     result_test.cpp
+    formula_test.cpp
     platform_test.cpp)
 
 target_link_libraries(arise_core_tests
