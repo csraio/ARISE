@@ -5,6 +5,8 @@ add_library(arise_io
     csv_table.cpp
     number.cpp
     peak_csv.cpp
+    pubchem.cpp
+    smiles_text.cpp
     text_lines.cpp)
 add_library(arise::io ALIAS arise_io)
 
