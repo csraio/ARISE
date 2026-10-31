@@ -1,4 +1,5 @@
 add_library(arise_io
+    candidates.cpp
     carbon_csv.cpp
     correlation_csv.cpp
     csv_table.cpp
