@@ -175,9 +175,16 @@ struct PendingBond {
     std::size_t column;
 };
 
+// The bond order written at one end of a ring closure, if any. A plain flag rather than
+// std::optional: GCC 13 at -O3 reports a false "maybe-uninitialized" for the optional.
+struct RingBondEnd {
+    BondOrder order = BondOrder::Single;
+    bool written = false;
+};
+
 struct OpenRing {
     std::size_t atom;
-    std::optional<BondOrder> order;
+    RingBondEnd end;
 };
 
 struct OpenBranch {
@@ -447,12 +454,14 @@ private:
         if (!previous_.has_value()) {
             return error_at(start, "a ring closure must follow an atom");
         }
-        const auto bond_order =
-            pending_.has_value() ? std::optional<BondOrder>{pending_->order} : std::nullopt;
+        RingBondEnd here;
+        if (pending_.has_value()) {
+            here = RingBondEnd{.order = pending_->order, .written = true};
+        }
         pending_.reset();
         auto& open = rings_[ring];
         if (!open.has_value()) {
-            open = OpenRing{.atom = *previous_, .order = bond_order};
+            open = OpenRing{.atom = *previous_, .end = here};
             ring_columns_[ring] = start;
             return {};
         }
@@ -461,10 +470,10 @@ private:
         if (opened.atom == *previous_) {
             return error_at(start, "ring " + std::to_string(ring) + " closes on itself");
         }
-        if (opened.order.has_value() && bond_order.has_value() && *opened.order != *bond_order) {
+        if (opened.end.written && here.written && opened.end.order != here.order) {
             return error_at(start, "ring " + std::to_string(ring) + " bond orders conflict");
         }
-        const auto order = opened.order.value_or(bond_order.value_or(BondOrder::Single));
+        const auto order = opened.end.written ? opened.end.order : here.order;
         return add_bond(opened.atom, *previous_, order, start);
     }
 
