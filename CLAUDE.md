@@ -1,10 +1,13 @@
 # ARISE — Anisotropy-Resolved Isomer Scoring Engine
 
-Deterministic, explainable NMR structure-ranking engine. It re-ranks candidate
-small molecules (mostly regioisomers) using 1H shifts, a HOSE-code baseline, and
-a 3D ring-current/anisotropy correction, plus optional HSQC/HMBC scoring.
-Ships as a native CLI and as a static WebAssembly page.
-Design and scope: `docs/ARISE_Project_Proposal.pdf` (source: `.html`).
+Deterministic, explainable NMR structure-elucidation engine that works like an expert:
+candidates with the known molecular formula come from PubChem, cheap 1D NMR evidence
+(DEPT counts, symmetry, confirmed functional groups) prunes them, and only the
+survivors get shift prediction (HOSE baseline + 3D ring-current/anisotropy
+correction) and optional HSQC/HMBC scoring.
+Two deliverables: the portable C++ engine (native CLI and WebAssembly) and a static
+web client (JavaScript UI). Design: `docs/adr/0002-expert-pipeline-pubchem-web.md`;
+original proposal `docs/ARISE_Project_Proposal.pdf` (partly superseded by ADR 0002).
 
 ## Golden rules
 1. The engine (`include/`, `src/`) is idiomatic, portable C++20. It must compile
@@ -14,19 +17,26 @@ Design and scope: `docs/ARISE_Project_Proposal.pdf` (source: `.html`).
 3. Python is allowed only in `research/` (throwaway experiments) and `scripts/`
    (development-time data builders). The engine never calls, embeds or needs Python;
    the CMake build must work on a machine without Python.
-4. Same input gives the same output, byte-for-byte, on native and WebAssembly.
+4. Same input gives the same output, byte-for-byte, on native and WebAssembly. Input
+   includes the candidate list: PubChem changes over time, so results record the
+   formula, query date and retrieved list.
+5. The engine never touches the network or files. Only the app layer does: the web
+   client fetches PubChem and handles uploads/downloads, the CLI reads saved files.
+   The engine takes text in and returns results.
 
 ## Repository layout
 - `include/arise/<module>/` public headers · `src/<module>/` implementation
 - `tests/<module>/` GoogleTest files mirroring `src/` · `tests/golden/` reference data
 - `bench/` Google Benchmark · `apps/cli/` native CLI · `apps/wasm/` Emscripten bindings
-- `public/` static web page · `scripts/` Python data builders · `research/` Python experiments
+- `public/` web client (static HTML + JavaScript ES modules, no backend)
+- `scripts/` Python data builders · `research/` Python experiments
 - `third-party/` pinned dependencies (do not edit) · `docs/adr/` design decisions
 
 Modules (namespace `arise::<module>`), dependencies point downward only:
 `core` (types, units, Result) → `io` (CSV, packed binary formats)
-→ `nmr1d` (1D spectral interpretation, e.g. DEPT) → `chem` (RDKit wrapper)
-→ `filter` (mass, SMARTS) → `predict` (HOSE 1H) → `aniso` (conformers, ring currents)
+→ `nmr1d` (1D spectral interpretation, e.g. DEPT) → `chem` (in-house SMILES reader,
+molecule graph) → `filter` (DEPT counts, symmetry, functional groups)
+→ `predict` (HOSE baseline) → `aniso` (conformers, ring currents)
 → `nmr2d` (HSQC/HMBC scoring) → `pipeline` → `apps/*`.
 
 ## Build & test
@@ -52,8 +62,8 @@ stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wa
   in every test run instead of returning garbage.
 - `const` by default, `[[nodiscard]]` on functions returning results, `enum class`,
   `noexcept` where true. No macros except include guards (`#pragma once`).
-- Errors: `arise::Result<T>` (value or `Error`). RDKit exceptions are caught in
-  `chem` and converted; exceptions never cross ARISE module boundaries.
+- Errors: `arise::Result<T>` (value or `Error`). Exceptions never cross ARISE module
+  boundaries; any third-party exception is caught and converted where it is called.
 - Strong unit types: `Ppm`, `Hz`, `Dalton`, `Angstrom`. Never pass bare doubles
   for physical quantities across module boundaries.
 - Naming: `snake_case` functions/variables, `PascalCase` types,
@@ -81,8 +91,9 @@ stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wa
   literature cases; cite the source in a comment.
 - Golden tests compare the pipeline to `tests/golden/` within stated tolerances.
   Regenerate golden files only on purpose, with a commit message explaining why.
-- Speed targets (Stages 1–2: 500 candidates < 50 ms; full: 12 candidates < 1 s)
-  are guarded by benchmarks in `bench/`.
+- Speed targets, guarded by benchmarks in `bench/`: cleaning + pruning 10,000
+  candidates < 100 ms (native and wasm); full chemistry on 12 candidates < 1 s.
+  End to end, formula to pruned list should take about 2–5 s, mostly PubChem.
 - The commit gate tests exactly the staged snapshot (exported to `.git/arise-gate/`),
   so unstaged edits and untracked files can neither break nor rescue a commit.
   The gate itself is tested by `scripts/verify_commit_gate.sh` (also in CI).
@@ -94,17 +105,20 @@ stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wa
 - Large generated data is not committed; document how to rebuild it.
 
 ## Dependencies
-- Pinned exact versions via CMake FetchContent in `third-party/`: RDKit (only
-  GraphMol, SmilesParse, Substruct, DistGeomHelpers, ForceFieldHelpers; Python
-  wrappers OFF), GoogleTest, Google Benchmark, fmt. Ask before adding any new one.
+- As few as possible. Pinned exact versions via CMake FetchContent in `third-party/`:
+  GoogleTest (tests only); Google Benchmark planned (bench only). Pinned tools:
+  clang-format/clang-tidy, Emscripten. No RDKit, libcurl or JS framework; whether
+  RDKit is needed for 3D conformers is decided at the anisotropy stage.
+  Ask before adding any new dependency.
 
 ## Git workflow
 - Branch from `main`; small commits; Conventional Commits
   (`feat(aniso): add Johnson–Bovey ring current`).
 - Never commit build output, data dumps or secrets. Never bypass hooks.
 - Significant design choices get a short ADR in `docs/adr/`.
-- CI (`.github/workflows/ci.yml`) builds and tests every push and PR on Linux
-  and macOS, in `dev` and `asan`. `main` only takes changes through green PRs.
+- CI (`.github/workflows/ci.yml`) builds and tests every push and PR on Linux and
+  macOS (`dev`, `asan`, `release`), plus wasm, lint and the commit-gate self-test.
+  `main` only takes changes through green PRs.
 
 ## Safe experiments & shell hygiene
 Lessons from a real incident: a deliberately broken test was "reverted" with
