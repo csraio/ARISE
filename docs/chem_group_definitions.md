@@ -35,7 +35,7 @@ not written from memory. 3b's suggestion rules use those measured ranges.
 | 5 | Carbonate ester | O–C(=O)–O with both O bonded to carbon | cyclic carbonates | — | CHEBI:46722 carbonate ester | C=O carbon |
 | 6 | Carboxylic anhydride | C(=O)–O–C(=O) | cyclic anhydrides | — | CHEBI:35873 carboxylic anhydride | C=O carbons |
 | 7 | Carboxamide | C(=O)–N, acyl side H or C | lactams, formamides | ureas, carbamates | CHEBI:37622 carboxamide | C=O carbon |
-| 8 | Carbamate ester | O–C(=O)–N | cyclic carbamates | — | CHEBI:23003 carbamate ester | C=O carbon |
+| 8 | Carbamate ester | O–C(=O)–N, the O also bonded to carbon or to an oxime N | cyclic carbamates, O-carbamoyl oximes (aldicarb, methomyl; user decision 2026-10-31) | carbamic acids | CHEBI:23003 carbamate ester | C=O carbon |
 | 9 | Urea | N–C(=O)–N | cyclic ureas | — | CHEBI:47857 ureas | C=O carbon |
 | 10 | Alcohol | OH on a saturated (sp3) carbon | hemiacetal OH | enols, phenols, acids | CHEBI:30879 alcohol | C–OH carbon |
 | 11 | Enol | OH on a C=C carbon | — | phenols | CHEBI:33823 enol | C–OH carbon |
@@ -56,8 +56,51 @@ not written from memory. 3b's suggestion rules use those measured ranges.
 | 26 | Pyrrole ring | aromatic five-membered ring with one N | indoles | — | CHEBI:26455 pyrroles | ring carbons |
 | 27 | Thiophene ring | aromatic five-membered ring with one S | — | — | CHEBI:26961 thiophenes | ring carbons |
 
-## Known differences from the external checks (approved here, by name)
-*(Filled in from the first automatic run; each row needs sign-off.)*
+## How the external checks map to the groups (user decisions, 2026-10-31)
+- **ChEBI parent classes.** ChEBI files carbamate and carbonate esters under carboxylic
+  ester, and pyridones under pyridines. When ChEBI asserts such a parent class, finding any
+  of its ARISE groups passes.
+- **ChEBI ring classes** (benzenes, pyridines, furans, pyrroles, thiophenes) are skeleton
+  classes that include non-aromatic rings (butenolides, THF, dihydropyridines). They are
+  checked only where RDKit independently sees the aromatic ring: its published fragments
+  fr_benzene, fr_pyridine, fr_furan and fr_thiophene, and for pyrroles `n1cccc1`, written
+  like RDKit's fr_furan `o1cccc1`.
+- **RDKit fragments** are compared only where RDKit's published definition matches the
+  group: fr_ketone, fr_aldehyde, fr_COO2 (acid), fr_ester, fr_Al_OH (alcohol + enol),
+  fr_phenol, fr_nitrile, fr_urea, fr_benzene, fr_pyridine, fr_furan, fr_thiophene.
+- **Oxime ethers** (C=N–O–C) get no group: their C=N carbon overlaps oximes' in
+  nmrshiftdb2 (oximes: median 152.8 ppm, 5–95% 146.4–163.1, n = 98; oxime ethers: median
+  156.4 ppm, 147.6–167.0, n = 160), so a separate group would not be told apart by shift.
+
+## Known differences from the external checks
+Every disagreement is listed by molecule in `tests/data/reference/known_differences.tsv`
+(hand-written; each row names its category). A listed row that starts agreeing fails the
+test, so the list cannot go stale. Categories, from the first full run (ChEBI release 256,
+2,186 molecules; RDKit 2025.09.3, 4,655 PubChem candidates):
+
+| Category | Rows | Source | Reason |
+|---|---|---|---|
+| formate | 51 | RDKit | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
+| chebi-error | 12 | ChEBI | ChEBI asserts a group whose atoms the structure lacks (e.g. "amine" with no N) |
+| oxime-ether | 11 | ChEBI | ChEBI calls oxime ethers oximes and ethers; ARISE assigns no group (user decision) |
+| tautomer | 10 | ChEBI | ChEBI classifies another tautomer (N-hydroxyguanidine, enol/keto forms, 4-iminopyridine) |
+| urea-not-carboxamide | 5 | ChEBI | ureas are their own group (user decision) |
+| pyridone-scope | 5 | ChEBI | ring with N=C, two ring C=O, or a dihydro ring: outside row 13 |
+| carbonic-monoester | 4 | ChEBI | one O is OH; a carbonate ester needs carbon on both O |
+| formamide | 3 | ChEBI | formamides are not aldehydes (user decision) |
+| enol-as-alcohol | 2 | ChEBI | alcohol means OH on an sp3 carbon |
+| enol-ester | 2 | ChEBI | enol means an OH on a C=C carbon |
+| pyrrole-n, hydroxylamine-n, amide-n | 1 each | ChEBI | these N are not amines (row 15) |
+| furan-o | 1 | ChEBI | an aromatic ring O is not an ether (user decision) |
+| hydrazone | 1 | ChEBI | imines exclude C=N–N (row 19) |
+| thiourea | 1 | ChEBI | urea needs C=O |
+| ynol | 1 | RDKit | OH on an alkyne carbon: neither alcohol nor enol |
+| bridged-benzene | 1 | RDKit | a bridged six-ring outside RDKit's smallest-ring set; ARISE finds the benzene |
+| alpha-lactone | 1 | RDKit | fr_ester needs two distinct carbons around the ester O; ARISE counts it |
+
+**Gaps these checks exposed** (no group today; add one if it matters): OH on a
+heteroaromatic carbon other than pyridine (hydroxyfurans, pyrazolols), ynols, oxime ethers,
+O-acyl oximes, hydrazones.
 
 ## Not covered yet
 Sulfur groups beyond sulfonamide (thiol, sulfide, sulfoxide, sulfone), phosphorus groups,
