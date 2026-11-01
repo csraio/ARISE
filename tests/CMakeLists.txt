@@ -8,7 +8,9 @@ set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${ARISE_PUBCHEM_
 configure_file(fixtures/pubchem_fixture.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/fixtures/pubchem_fixture.hpp" @ONLY)
 # Reference data is larger than the 65,536 characters a string literal may portably hold,
-# so it is embedded as raw-string chunks that tests join at run time.
+# so it is embedded as raw-string chunks that tests join at run time. The ""sv suffix gives
+# each chunk's length directly; constructing a string_view from a plain literal would count
+# 60,000 characters at compile time and exceed clang's constexpr step limit with libstdc++.
 function(arise_embed_chunks file out_chunks out_count)
     file(READ "${file}" content)
     string(LENGTH "${content}" length)
@@ -18,7 +20,7 @@ function(arise_embed_chunks file out_chunks out_count)
     set(offset 0)
     while(offset LESS length)
         string(SUBSTRING "${content}" ${offset} ${chunk_size} piece)
-        string(APPEND chunks "    R\"ref(${piece})ref\",\n")
+        string(APPEND chunks "    R\"ref(${piece})ref\"sv,\n")
         math(EXPR offset "${offset} + ${chunk_size}")
         math(EXPR count "${count} + 1")
     endwhile()

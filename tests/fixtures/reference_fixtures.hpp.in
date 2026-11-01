@@ -10,6 +10,8 @@
 
 namespace arise::test {
 
+using std::literals::string_view_literals::operator""sv;
+
 // Experimentally assigned 13C peaks for 400 molecules. Contains information from
 // nmrshiftdb2 (www.nmrshiftdb.org), which is made available here under the nmrshiftdb2
 // Database License (tests/data/reference/NMRSHIFTDB2_LICENSE.txt).
