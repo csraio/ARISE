@@ -83,7 +83,7 @@ TEST(CarbonType, ExplicitHydrogenAtomsCount) {
 TEST(AromaticRings, FindsKekuleBenzene) {
     const auto rings = aromatic_rings(parse_ok("CC1=CC=CC=C1"));  // toluene
     ASSERT_EQ(rings.size(), 1U);
-    EXPECT_EQ(rings[0], (std::array<std::size_t, 6>{1, 2, 3, 4, 5, 6}));
+    EXPECT_EQ(rings[0], (std::vector<std::size_t>{1, 2, 3, 4, 5, 6}));
 }
 
 TEST(AromaticRings, FindsPyridine) {
@@ -97,11 +97,37 @@ TEST(AromaticRings, FindsBothRingsOfKekuleNaphthalene) {
     EXPECT_EQ(aromatic_rings(parse_ok("C1=CC=C(C=C1)C2=CC=CC=C2")).size(), 2U);  // biphenyl
 }
 
+TEST(AromaticRings, FindsFiveMemberedHeteroaromatics) {
+    // Huckel 6 pi: two ring C=C plus the lone pair of O, S or N(H/R) (user decision:
+    // furan, pyrrole and thiophene are aromatic).
+    EXPECT_EQ(aromatic_rings(parse_ok("C1=COC=C1")).size(), 1U);   // furan
+    EXPECT_EQ(aromatic_rings(parse_ok("C1=CNC=C1")).size(), 1U);   // pyrrole
+    EXPECT_EQ(aromatic_rings(parse_ok("CN1C=CC=C1")).size(), 1U);  // N-methylpyrrole
+    EXPECT_EQ(aromatic_rings(parse_ok("C1=CSC=C1")).size(), 1U);   // thiophene
+    EXPECT_EQ(aromatic_rings(parse_ok("C1=COC=C1"))[0].size(), 5U);
+    // Indole: the benzene ring and the pyrrole ring, which shares a fusion bond. In both
+    // Kekule forms the fusion carbons' double bonds lie in the benzene ring.
+    EXPECT_EQ(aromatic_rings(parse_ok("C1=CC=C2C(=C1)C=CN2")).size(), 2U);
+    EXPECT_EQ(aromatic_rings(parse_ok("N1C=CC2=CC=CC=C12")).size(), 2U);
+}
+
+TEST(AromaticRings, IgnoresNonAromaticFiveRings) {
+    EXPECT_TRUE(aromatic_rings(parse_ok("C1COC=C1")).empty());   // 2,3-dihydrofuran
+    EXPECT_TRUE(aromatic_rings(parse_ok("C1C=CC=C1")).empty());  // cyclopentadiene: no lone pair
+    EXPECT_TRUE(aromatic_rings(parse_ok("C1CCOC1")).empty());    // THF
+    // A ring S with two extra bonds has no free lone pair for the ring.
+    EXPECT_TRUE(aromatic_rings(parse_ok("CS1(C)C=CC=C1")).empty());
+    // Fluoranthene: three benzenoid rings; its five-membered ring has five carbons and no
+    // lone-pair donor, so it is not counted.
+    EXPECT_EQ(aromatic_rings(parse_ok("C1=CC2=CC=CC3=C2C(=C1)C4=CC=CC=C43")).size(), 3U);
+}
+
 TEST(AromaticRings, IgnoresNonAromaticSixRings) {
     EXPECT_TRUE(aromatic_rings(parse_ok("C1=CCCCC1")).empty());         // cyclohexene
     EXPECT_TRUE(aromatic_rings(parse_ok("C1=CC=CCC1")).empty());        // cyclohexadiene
     EXPECT_TRUE(aromatic_rings(parse_ok("C1CCCCC1")).empty());          // cyclohexane
     EXPECT_TRUE(aromatic_rings(parse_ok("C1=CC(=O)C=CC1=O")).empty());  // benzoquinone
+    EXPECT_TRUE(aromatic_rings(parse_ok("CS1=CC=CC=C1")).empty());      // thiabenzene ylide
 }
 
 TEST(AromaticRings, DoNotDependOnHowTheSmilesIsWritten) {
@@ -141,6 +167,13 @@ TEST(Symmetry, AliphaticEquivalences) {
     EXPECT_EQ(carbon_class_sizes("CCOCC"), (std::vector<int>{2, 2}));      // diethyl ether
     EXPECT_EQ(carbon_class_sizes("CC(C)(C)C"), (std::vector<int>{1, 4}));  // neopentane
     EXPECT_EQ(carbon_class_sizes("CCOC(=O)C"), (std::vector<int>{1, 1, 1, 1}));
+}
+
+TEST(Symmetry, FiveMemberedHeteroaromaticsStaySymmetric) {
+    EXPECT_EQ(carbon_class_sizes("C1=COC=C1"), (std::vector<int>{2, 2}));  // furan
+    EXPECT_EQ(carbon_class_sizes("C1=CSC=C1"), (std::vector<int>{2, 2}));  // thiophene
+    EXPECT_EQ(carbon_class_sizes("CC1=CC=C(C)O1"),
+              (std::vector<int>{2, 2, 2}));  // 2,5-dimethylfuran
 }
 
 TEST(Symmetry, NaphthaleneHasThreeCarbonEnvironments) {
@@ -268,66 +301,142 @@ TEST(NmrEquivalence, NeverFewerClassesThanTopology) {
     }
 }
 
-// ---- Functional groups -------------------------------------------------------------
+// ---- Functional groups (docs/chem_group_definitions.md) -----------------------------
+// One test per family; each checks the inclusions and exclusions the definitions table
+// names. External checks against ChEBI and RDKit live in reference_test.cpp.
 
-TEST(Groups, CarbonylFamilies) {
-    EXPECT_EQ(groups("CC(=O)O", Group::CarboxylicAcid), 1);  // acetic acid
-    EXPECT_EQ(groups("C(=O)O", Group::CarboxylicAcid), 1);   // formic acid...
-    EXPECT_EQ(groups("C(=O)O", Group::Aldehyde), 0);         // ...is not an aldehyde
-    EXPECT_EQ(groups("CC=O", Group::Aldehyde), 1);           // acetaldehyde
-    EXPECT_EQ(groups("C=O", Group::Aldehyde), 1);            // formaldehyde
-    EXPECT_EQ(groups("CC=O", Group::Ketone), 0);
-    EXPECT_EQ(groups("CC(=O)C", Group::Ketone), 1);  // acetone
-    EXPECT_EQ(groups("CC(=O)N", Group::Amide), 1);   // acetamide
-    EXPECT_EQ(groups("CC(=O)N", Group::Amine), 0);
-    // N-methylacetamide: its N has a carbonyl and a methyl neighbour; still no amine.
-    EXPECT_EQ(groups("CNC(C)=O", Group::Amine), 0);
-    EXPECT_EQ(groups("CNC(C)=O", Group::Amide), 1);
-}
-
-TEST(Groups, Esters) {
-    EXPECT_EQ(groups("CCOC(=O)C", Group::Ester), 1);  // ethyl acetate
-    EXPECT_EQ(groups("CCOC(=O)C", Group::Ether), 0);  // its O is not an ether O
+TEST(Groups, AcidsAldehydesKetones) {
+    EXPECT_EQ(groups("CC(=O)O", Group::CarboxylicAcid), 1);
+    EXPECT_EQ(groups("C(=O)O", Group::CarboxylicAcid), 1);             // formic acid...
+    EXPECT_EQ(groups("C(=O)O", Group::Aldehyde), 0);                   // ...not an aldehyde
+    EXPECT_EQ(groups("OC(=O)C1=CC=CC=C1", Group::CarboxylicAcid), 1);  // benzoic acid
+    EXPECT_EQ(groups("CC=O", Group::Aldehyde), 1);
+    EXPECT_EQ(groups("C=O", Group::Aldehyde), 1);       // formaldehyde (user decision)
+    EXPECT_EQ(groups("COC=O", Group::Aldehyde), 0);     // methyl formate
+    EXPECT_EQ(groups("CN(C)C=O", Group::Aldehyde), 0);  // DMF
+    EXPECT_EQ(groups("CC(=O)C", Group::Ketone), 1);
+    EXPECT_EQ(groups("CC(=O)C1=CC=CC=C1", Group::Ketone), 1);  // acetophenone
+    EXPECT_EQ(groups("C1=CC(=O)C=CC1=O", Group::Ketone), 2);   // benzoquinone
     EXPECT_EQ(groups("CCOC(=O)C", Group::Ketone), 0);
-    EXPECT_EQ(groups("COC=O", Group::Ester), 1);            // methyl formate...
-    EXPECT_EQ(groups("COC=O", Group::Aldehyde), 0);         // ...is not an aldehyde
-    EXPECT_EQ(groups("C1CC(=O)OC1", Group::Ester), 1);      // gamma-butyrolactone
-    EXPECT_EQ(groups("CC(=O)OC(C)=O", Group::Ester), 0);    // acetic anhydride
-    EXPECT_EQ(groups("CCOC(=O)CC(C)=O", Group::Ester), 1);  // ethyl acetoacetate
-    EXPECT_EQ(groups("CCOC(=O)CC(C)=O", Group::Ketone), 1);
+    EXPECT_EQ(groups("CC=O", Group::Ketone), 0);  // an aldehyde has one carbon side
 }
 
-TEST(Groups, HydroxylAndEtherOxygens) {
+TEST(Groups, EstersAndTheirNeighbours) {
+    EXPECT_EQ(groups("CCOC(=O)C", Group::CarboxylicEster), 1);      // ethyl acetate
+    EXPECT_EQ(groups("COC=O", Group::CarboxylicEster), 1);          // formate (user decision)
+    EXPECT_EQ(groups("C1CC(=O)OC1", Group::CarboxylicEster), 1);    // lactone
+    EXPECT_EQ(groups("COC(=O)OC", Group::CarboxylicEster), 0);      // carbonate
+    EXPECT_EQ(groups("COC(N)=O", Group::CarboxylicEster), 0);       // carbamate
+    EXPECT_EQ(groups("CC(=O)OC(C)=O", Group::CarboxylicEster), 0);  // anhydride
+    EXPECT_EQ(groups("COC(=O)OC", Group::CarbonateEster), 1);
+    EXPECT_EQ(groups("O=C1OCCO1", Group::CarbonateEster), 1);  // ethylene carbonate
+    EXPECT_EQ(groups("CCOC(=O)C", Group::CarbonateEster), 0);
+    EXPECT_EQ(groups("COC(=O)O", Group::CarbonateEster), 0);  // monoester: one O is an OH
+    EXPECT_EQ(groups("CC(=O)OC(C)=O", Group::CarboxylicAnhydride), 1);
+    EXPECT_EQ(groups("O=C1CCC(=O)O1", Group::CarboxylicAnhydride), 1);  // succinic anhydride
+    EXPECT_EQ(groups("CCOC(=O)C", Group::CarboxylicAnhydride), 0);
+}
+
+TEST(Groups, AmidesCarbamatesUreas) {
+    EXPECT_EQ(groups("CC(=O)N", Group::Carboxamide), 1);
+    EXPECT_EQ(groups("CN(C)C=O", Group::Carboxamide), 1);  // formamide
+    EXPECT_EQ(groups("CNC(C)=O", Group::Carboxamide), 1);
+    EXPECT_EQ(groups("O=C1CCCN1", Group::Carboxamide), 1);  // lactam
+    EXPECT_EQ(groups("NC(N)=O", Group::Carboxamide), 0);    // urea (user decision)
+    EXPECT_EQ(groups("COC(N)=O", Group::Carboxamide), 0);   // carbamate (user decision)
+    EXPECT_EQ(groups("COC(N)=O", Group::CarbamateEster), 1);
+    EXPECT_EQ(groups("O=C1NCCO1", Group::CarbamateEster), 1);  // oxazolidinone
+    EXPECT_EQ(groups("NC(N)=O", Group::CarbamateEster), 0);
+    EXPECT_EQ(groups("NC(=O)O", Group::CarbamateEster), 0);  // carbamic acid: no ester O
+    EXPECT_EQ(groups("NC(N)=O", Group::Urea), 1);
+    EXPECT_EQ(groups("CN(C)C(=O)N(C)C", Group::Urea), 1);
+    EXPECT_EQ(groups("O=C1NCCN1", Group::Urea), 1);  // imidazolidinone
+    EXPECT_EQ(groups("CC(=O)N", Group::Urea), 0);
+}
+
+TEST(Groups, HydroxylFamilies) {
     EXPECT_EQ(groups("CCO", Group::Alcohol), 1);
-    EXPECT_EQ(groups("OC1=CC=CC=C1", Group::Phenol), 1);
+    EXPECT_EQ(groups("C=CO", Group::Alcohol), 0);
     EXPECT_EQ(groups("OC1=CC=CC=C1", Group::Alcohol), 0);
-    EXPECT_EQ(groups("C=CO", Group::Alcohol), 0);  // an enol is not an alcohol
     EXPECT_EQ(groups("CC(=O)O", Group::Alcohol), 0);
-    EXPECT_EQ(groups("CCOCC", Group::Ether), 1);
-    EXPECT_EQ(groups("COCC(=O)C", Group::Ether), 1);  // methoxyacetone
-    EXPECT_EQ(groups("COCC(=O)C", Group::Ketone), 1);
-    EXPECT_EQ(groups("COC1=CC=CC=C1", Group::Ether), 1);  // anisole
-    EXPECT_EQ(groups("OC(=O)C1=CC=C(O)C=C1", Group::CarboxylicAcid), 1);
+    EXPECT_EQ(groups("C=CO", Group::Enol), 1);
+    EXPECT_EQ(groups("CCO", Group::Enol), 0);
+    EXPECT_EQ(groups("OC1=CC=CC=C1", Group::Enol), 0);
+    EXPECT_EQ(groups("CC=C=O", Group::Enol), 0);  // ketene: the O carries no H
+    EXPECT_EQ(groups("OC1=CC=CC=C1", Group::Phenol), 1);
+    EXPECT_EQ(groups("OC1=CC2=CC=CC=C2C=C1", Group::Phenol), 1);  // 2-naphthol
     EXPECT_EQ(groups("OC(=O)C1=CC=C(O)C=C1", Group::Phenol), 1);
+    EXPECT_EQ(groups("OC1=CN=CC=C1", Group::Phenol), 0);  // hydroxypyridine
+    EXPECT_EQ(groups("OC1=CN=CC=C1", Group::Pyridone), 1);
+    EXPECT_EQ(groups("O=C1C=CC=CN1", Group::Pyridone), 1);  // 2-pyridone
+    EXPECT_EQ(groups("O=C1C=CNC=C1", Group::Pyridone), 1);  // 4-pyridone
+    EXPECT_EQ(groups("OC1=CC=CC=C1", Group::Pyridone), 0);
+    EXPECT_EQ(groups("O=C1CCCCN1", Group::Pyridone), 0);  // valerolactam: no ring C=C
 }
 
-TEST(Groups, NitrogenGroups) {
+TEST(Groups, Ethers) {
+    EXPECT_EQ(groups("CCOCC", Group::Ether), 1);
+    EXPECT_EQ(groups("COCC(=O)C", Group::Ether), 1);      // methoxyacetone
+    EXPECT_EQ(groups("COC1=CC=CC=C1", Group::Ether), 1);  // anisole
+    EXPECT_EQ(groups("C1COCCO1", Group::Ether), 2);       // dioxane
+    EXPECT_EQ(groups("C1CCOC1", Group::Ether), 1);        // THF
+    EXPECT_EQ(groups("CC1CO1", Group::Ether), 1);         // epoxide
+    EXPECT_EQ(groups("CCOC(=O)C", Group::Ether), 0);      // ester O
+    EXPECT_EQ(groups("C1=COC=C1", Group::Ether), 0);      // furan O (user decision)
+}
+
+TEST(Groups, NitrogenFamilies) {
     EXPECT_EQ(groups("CN", Group::Amine), 1);
-    EXPECT_EQ(groups("CCN(CC)CC", Group::Amine), 1);  // triethylamine
+    EXPECT_EQ(groups("CCN(CC)CC", Group::Amine), 1);
+    EXPECT_EQ(groups("NC1=CC=CC=C1", Group::Amine), 1);  // aniline
+    EXPECT_EQ(groups("CC(=O)N", Group::Amine), 0);
+    EXPECT_EQ(groups("C1=CC=NC=C1", Group::Amine), 0);  // pyridine N
+    EXPECT_EQ(groups("C1=CNC=C1", Group::Amine), 0);    // pyrrole N (user decision)
+    EXPECT_EQ(groups("CS(N)(=O)=O", Group::Amine), 0);  // sulfonamide N
+    EXPECT_EQ(groups("CNN", Group::Amine), 0);          // hydrazine N
+    EXPECT_EQ(groups("CNO", Group::Amine), 0);          // hydroxylamine N
+    EXPECT_EQ(groups("CC(N)=S", Group::Amine), 0);      // thioamide N
+    EXPECT_EQ(groups("CS(N)(=O)=O", Group::Sulfonamide), 1);
+    EXPECT_EQ(groups("CN(C)S(=O)(=O)C", Group::Sulfonamide), 1);
+    EXPECT_EQ(groups("CS(N)=O", Group::Sulfonamide), 0);  // sulfinamide: one S=O
+    EXPECT_EQ(groups("CNN", Group::Hydrazine), 1);
+    EXPECT_EQ(groups("CC(=O)NN", Group::Hydrazine), 1);  // hydrazide
+    EXPECT_EQ(groups("CNO", Group::Hydroxylamine), 1);
+    EXPECT_EQ(groups("CC(C)=NO", Group::Hydroxylamine), 0);  // oxime
+    EXPECT_EQ(groups("CC(C)=NC", Group::Imine), 1);
+    EXPECT_EQ(groups("CC(C)=NO", Group::Imine), 0);
+    EXPECT_EQ(groups("CC(C)=NN", Group::Imine), 0);  // hydrazone
+    EXPECT_EQ(groups("CC(C)=NO", Group::Oxime), 1);
+    EXPECT_EQ(groups("CC(C)=NC", Group::Oxime), 0);
+    EXPECT_EQ(groups("CC(C)=NOC", Group::Oxime), 0);  // O-methyl oxime: no OH
     EXPECT_EQ(groups("CC#N", Group::Nitrile), 1);
-    EXPECT_EQ(groups("CC#N", Group::Amine), 0);
-    EXPECT_EQ(groups("C1=CC=NC=C1", Group::Amine), 0);  // pyridine N is not an amine
 }
 
-TEST(Groups, AlkenesAndRings) {
+TEST(Groups, AlkenesAndAromaticRings) {
     EXPECT_EQ(groups("C=CC=C", Group::Alkene), 2);
     EXPECT_EQ(groups("C=CC1=CC=CC=C1", Group::Alkene), 1);  // styrene: ring bonds excluded
-    EXPECT_EQ(groups("C=CC1=CC=CC=C1", Group::BenzeneRing), 1);
     EXPECT_EQ(groups("C1=CC=CC=C1", Group::Alkene), 0);
-    EXPECT_EQ(groups("C1=CC=NC=C1", Group::BenzeneRing), 0);  // pyridine has N
+    EXPECT_EQ(groups("C1=CC(=O)C=CC1=O", Group::Alkene), 2);  // quinone is not aromatic
+    EXPECT_EQ(groups("C1=COC=C1", Group::Alkene), 0);         // furan ring bonds
+    EXPECT_EQ(groups("C=CC1=CC=CO1", Group::Alkene), 1);      // 2-vinylfuran
+    EXPECT_EQ(groups("C=CC1=CC=CC=C1", Group::BenzeneRing), 1);
     EXPECT_EQ(groups("C1=CC=C2C=CC=CC2=C1", Group::BenzeneRing), 2);
-    EXPECT_EQ(groups("C1=CC(=O)C=CC1=O", Group::Ketone), 2);  // benzoquinone
-    EXPECT_EQ(groups("C1=CC(=O)C=CC1=O", Group::Alkene), 2);
+    EXPECT_EQ(groups("C1=CC=NC=C1", Group::BenzeneRing), 0);
+    EXPECT_EQ(groups("C1=CC=NC=C1", Group::PyridineRing), 1);
+    EXPECT_EQ(groups("C1=CC=C2C(=C1)C=CC=N2", Group::PyridineRing), 1);  // quinoline
+    EXPECT_EQ(groups("C1=CC=C2C(=C1)C=CC=N2", Group::BenzeneRing), 1);
+    EXPECT_EQ(groups("C1=COC=C1", Group::FuranRing), 1);
+    EXPECT_EQ(groups("C1=CNC=C1", Group::FuranRing), 0);  // the heteroatom decides the ring
+    EXPECT_EQ(groups("C1=CSC=C1", Group::PyrroleRing), 0);
+    EXPECT_EQ(groups("C1=CC=C2C(=C1)C=CO2", Group::FuranRing), 1);  // benzofuran
+    EXPECT_EQ(groups("C1CCOC1", Group::FuranRing), 0);              // THF
+    EXPECT_EQ(groups("C1=CNC=C1", Group::PyrroleRing), 1);
+    EXPECT_EQ(groups("CN1C=CC=C1", Group::PyrroleRing), 1);
+    EXPECT_EQ(groups("C1=CC=C2C(=C1)C=CN2", Group::PyrroleRing), 1);  // indole
+    EXPECT_EQ(groups("C1=CC=C2C(=C1)C=CN2", Group::BenzeneRing), 1);
+    EXPECT_EQ(groups("C1CCNC1", Group::PyrroleRing), 0);  // pyrrolidine
+    EXPECT_EQ(groups("C1=CSC=C1", Group::ThiopheneRing), 1);
+    EXPECT_EQ(groups("C1CCSC1", Group::ThiopheneRing), 0);
 }
 
 // ---- The real PubChem C4H8O2 result ------------------------------------------------
@@ -352,8 +461,16 @@ void expect_perceived(const arise::io::Candidate& candidate, const Expected& exp
 TEST(Perception, ReadsKeyC4H8O2StructuresAsPubChemWritesThem) {
     // Hand-derived: carbon environments and functional groups of six C4H8O2 isomers.
     const std::vector<Expected> cases{
-        {.cid = "CID 8857", .carbon_classes = {1, 1, 1, 1}, .groups = {{Group::Ester, 1}}},
-        {.cid = "CID 11124", .carbon_classes = {1, 1, 1, 1}, .groups = {{Group::Ester, 1}}},
+        {
+            .cid = "CID 8857",
+            .carbon_classes = {1, 1, 1, 1},
+            .groups = {{Group::CarboxylicEster, 1}},
+        },
+        {
+            .cid = "CID 11124",
+            .carbon_classes = {1, 1, 1, 1},
+            .groups = {{Group::CarboxylicEster, 1}},
+        },
         {
             .cid = "CID 22172",
             .carbon_classes = {1, 1, 1, 1},
@@ -395,6 +512,7 @@ TEST(Groups, NamesAreReadable) {
         EXPECT_TRUE(names.insert(name).second) << "duplicate name " << name;
     }
     EXPECT_EQ(arise::chem::to_string(Group::CarboxylicAcid), "carboxylic acid");
+    EXPECT_EQ(arise::chem::kAllGroups.size(), 27U);  // the signed-off definitions table
 }
 
 }  // namespace
