@@ -394,6 +394,70 @@ TEST(Reference, ChebiChecksCoverEveryGroup) {
     EXPECT_EQ(groups.size(), arise::chem::kAllGroups.size());
 }
 
+// Whether `text` has the shape of a standard InChIKey: 14 letters, '-', 10 letters, '-', 1.
+bool is_inchikey(std::string_view text) {
+    constexpr std::string_view kShape = "AAAAAAAAAAAAAA-AAAAAAAAAA-A";
+    if (text.size() != kShape.size()) {
+        return false;
+    }
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        const bool letter = text[i] >= 'A' && text[i] <= 'Z';
+        if (kShape[i] == '-' ? text[i] != '-' : !letter) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// Ring checks that are not one of RDKit's published fr_* fragments: patterns ARISE's
+// checks wrote themselves.
+std::set<std::string_view> unpublished_ring_patterns() {
+    std::set<std::string_view> patterns;
+    for (const auto& check : chebi_checks()) {
+        if (!check.rdkit_ring.empty() && !check.rdkit_ring.starts_with("fr_")) {
+            patterns.insert(check.rdkit_ring);
+        }
+    }
+    return patterns;
+}
+
+// What is wrong with a 'pubchem' row (columns: source, InChI, pattern, reason naming the
+// PubChem CID and InChIKey); empty if nothing.
+std::string_view pubchem_row_problem(const std::vector<std::string_view>& fields,
+                                     const std::set<std::string_view>& patterns) {
+    if (!patterns.contains(fields[2])) {
+        return "no check uses the pattern";
+    }
+    if (!fields[1].starts_with("InChI=1S/")) {
+        return "molecule is not a standard InChI";
+    }
+    const auto key = fields[3].find("InChIKey ");
+    if (key == std::string_view::npos || !is_inchikey(fields[3].substr(key + 9, 27))) {
+        return "reason names no InChIKey";
+    }
+    if (fields[3].find("PubChem CID ") == std::string_view::npos) {
+        return "reason names no PubChem CID";
+    }
+    return {};
+}
+
+TEST(Reference, RingPatternsWithoutAnRdkitFragmentArePubChemCompounds) {
+    // A ring pattern ARISE's checks wrote themselves must be tied in known_differences.tsv to
+    // the PubChem compound it encodes: its InChI and InChIKey, as PubChem gives them
+    // (scripts/build_reference_sets.py re-checks both against PubChem and RDKit).
+    const auto patterns = unpublished_ring_patterns();
+    EXPECT_EQ(patterns, (std::set<std::string_view>{"n1cccc1"}));
+    std::multiset<std::string_view> backed;
+    for (const auto line : data_lines(known_differences_text())) {
+        const auto fields = split(line, '\t');
+        if (fields.size() == 4 && fields[0] == "pubchem") {
+            EXPECT_EQ(pubchem_row_problem(fields, patterns), "") << line;
+            backed.insert(fields[2]);
+        }
+    }
+    EXPECT_EQ(backed, (std::multiset<std::string_view>{patterns.begin(), patterns.end()}));
+}
+
 // Whether RDKit sees the aromatic ring `check` needs (always true for non-ring classes).
 bool rdkit_sees_ring(const ChebiCheck& check, const std::vector<std::string_view>& rings,
                      const std::vector<int>& ring_counts) {

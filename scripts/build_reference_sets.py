@@ -29,6 +29,7 @@ import collections
 import datetime
 import gzip
 import hashlib
+import json
 import re
 import sys
 import urllib.request
@@ -51,6 +52,9 @@ PUBCHEM_URL = (
 )
 CHEBI_SDF_URL = "https://ftp.ebi.ac.uk/pub/databases/chebi/SDF/chebi_lite_3_stars.sdf.gz"
 CHEBI_OBO_URL = "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi_lite.obo.gz"
+PUBCHEM_INCHIKEY_URL = (
+    "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/{}/property/InChI,InChIKey/JSON"
+)
 ALLOWED = {"H", "B", "C", "N", "O", "F", "Si", "P", "S", "Cl", "Se", "Br", "I"}
 SAMPLE_SIZE = 400
 MAX_HEAVY_ATOMS = 25
@@ -69,7 +73,8 @@ CHEBI_CLASSES = [33575, 17478, 17087, 33308, 46722, 35873, 37622, 23003, 47857, 
 # non-aromatic rings (butenolides, dihydropyridines). ARISE's ring groups mean aromatic
 # rings, so each ChEBI row also records RDKit's aromatic ring counts, and a ChEBI ring
 # class is checked only where RDKit sees the ring (user decision 2026-10-31). Pyrroles have
-# no RDKit fragment; "n1cccc1" is written like RDKit's fr_furan "o1cccc1".
+# no RDKit fragment; "n1cccc1" is written like RDKit's fr_furan "o1cccc1", and
+# known_differences.tsv ties it to the PubChem compound it encodes (verify_ring_patterns).
 CHEBI_RINGS = [("fr_benzene", None), ("fr_pyridine", None), ("fr_furan", None),
                ("fr_thiophene", None), ("n1cccc1", Chem.MolFromSmarts("n1cccc1"))]
 CHEBI_PER_CLASS = 100
@@ -328,6 +333,35 @@ def ring_counts(mol):
             for name, pattern in CHEBI_RINGS]
 
 
+def verify_ring_patterns():
+    """Checks the 'pubchem' rows of known_differences.tsv, which tie each ring pattern that
+    is not an RDKit fragment to a PubChem compound: PubChem must still give that InChI and
+    CID for the InChIKey, RDKit must derive the same InChIKey from the InChI, and the pattern
+    must match the whole compound (every heavy atom), so it encodes exactly that ring."""
+    rows = {}
+    for line in (OUT / "known_differences.tsv").read_text().splitlines():
+        fields = line.split("\t")
+        if not line.startswith("#") and fields[0] == "pubchem":
+            rows[fields[2]] = fields
+    patterns = {name: pattern for name, pattern in CHEBI_RINGS if pattern is not None}
+    if set(rows) != set(patterns):
+        sys.exit(f"ring patterns {sorted(patterns)} but pubchem rows for {sorted(rows)}")
+    for name, (_, inchi, _, reason) in rows.items():
+        key = re.search(r"InChIKey ([A-Z]{14}-[A-Z]{10}-[A-Z])", reason).group(1)
+        cid = int(re.search(r"PubChem CID (\d+)", reason).group(1))
+        with urllib.request.urlopen(PUBCHEM_INCHIKEY_URL.format(key), timeout=60) as response:
+            props = json.load(response)["PropertyTable"]["Properties"]
+        if [(p["CID"], p["InChI"], p["InChIKey"]) for p in props] != [(cid, inchi, key)]:
+            sys.exit(f"{name}: PubChem gives {props} for {key}, the table {cid} {inchi}")
+        mol = Chem.MolFromInchi(inchi)
+        if mol is None or Chem.MolToInchiKey(mol) != key:
+            sys.exit(f"{name}: RDKit does not derive {key} from {inchi}")
+        matches = mol.GetSubstructMatches(patterns[name])
+        if len(matches) != 1 or len(matches[0]) != mol.GetNumHeavyAtoms():
+            sys.exit(f"{name} does not match all of PubChem CID {cid}: {matches}")
+        print(f"{name}: PubChem CID {cid}, {inchi}, {key} verified", file=sys.stderr)
+
+
 def chebi_record(mol):
     """(Kekule SMILES, RDKit ring counts) of a ChEBI structure in ARISE's scope, or None."""
     if any(a.GetAtomicNum() == 0 or a.GetSymbol() not in ALLOWED or a.GetFormalCharge()
@@ -414,6 +448,7 @@ def main():
          "# fragments: " + " ".join(FRAGMENTS)] + oracle,
         [PUBCHEM_URL.format(f) for f in formulas]))
 
+    verify_ring_patterns()
     args.chebi.mkdir(parents=True, exist_ok=True)
     sdf = args.chebi / "chebi_lite_3_stars.sdf.gz"
     obo = args.chebi / "chebi_lite.obo.gz"

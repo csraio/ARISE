@@ -64,7 +64,10 @@ not written from memory. 3b's suggestion rules use those measured ranges.
   classes that include non-aromatic rings (butenolides, THF, dihydropyridines). They are
   checked only where RDKit independently sees the aromatic ring: its published fragments
   fr_benzene, fr_pyridine, fr_furan and fr_thiophene, and for pyrroles `n1cccc1`, written
-  like RDKit's fr_furan `o1cccc1`.
+  like RDKit's fr_furan `o1cccc1`. RDKit has no pyrrole fragment, so that pattern is tied in
+  `known_differences.tsv` to the PubChem compound it encodes, 1H-pyrrole (PubChem CID 8027),
+  by the InChI and InChIKey PubChem gives; the reference builder re-checks both against
+  PubChem and RDKit and requires the pattern to match the whole compound.
 - **RDKit fragments** are compared only where RDKit's published definition matches the
   group: fr_ketone, fr_aldehyde, fr_COO2 (acid), fr_ester, fr_Al_OH (alcohol + enol),
   fr_phenol, fr_nitrile, fr_urea, fr_benzene, fr_pyridine, fr_furan, fr_thiophene.

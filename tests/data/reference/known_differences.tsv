@@ -1,6 +1,9 @@
 # Disagreements with the external references, signed off in docs/chem_group_definitions.md.
 # Hand-written. Columns: source (rdkit|chebi), molecule (SMILES or ChEBI id), check
 # (RDKit fragment or ChEBI class id), reason.
+# Source pubchem: a ring pattern the checks use that is not an RDKit fragment, tied to the
+# PubChem compound it encodes (molecule = PubChem's InChI; reason names the CID and
+# InChIKey). Both were taken from PubChem; scripts/build_reference_sets.py re-checks them.
 chebi	53360	30879	chebi-error: ChEBI asserts a group whose atoms the structure lacks (annotation error)
 chebi	133036	32952	chebi-error: ChEBI asserts a group whose atoms the structure lacks (annotation error)
 chebi	31175	46722	chebi-error: ChEBI asserts a group whose atoms the structure lacks (annotation error)
@@ -115,3 +118,4 @@ rdkit	CCC1=C(C=CC(=C1)C)OC=O	fr_ester	formate: RDKit fr_ester needs carbon on th
 rdkit	CC=CC=C(C=CC=C)OC=O	fr_ester	formate: RDKit fr_ester needs carbon on the acyl side; formates are esters (user decision)
 rdkit	CCC1=C(C=CC=C1OC=O)C	fr_ester	formate: RDKit fr_ester needs carbon on the acyl side; formates are esters (user decision)
 rdkit	C1=CC=CC(C=C1)CCOC=O	fr_ester	formate: RDKit fr_ester needs carbon on the acyl side; formates are esters (user decision)
+pubchem	InChI=1S/C4H5N/c1-2-4-5-3-1/h1-5H	n1cccc1	ring-pattern: RDKit has no pyrrole fragment; this pattern (written like fr_furan o1cccc1) is PubChem CID 8027 (1H-pyrrole), InChIKey KAESVJOAVNADME-UHFFFAOYSA-N
