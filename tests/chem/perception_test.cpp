@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <map>
 #include <optional>
+#include <ostream>
 #include <set>
 #include <string_view>
 #include <vector>
@@ -165,6 +166,106 @@ TEST(Symmetry, HydrogenCountDistinguishesOtherwiseAlikeAtoms) {
 TEST(Symmetry, IsotopeLabelBreaksEquivalence) {
     // 13C-labelled methyl in propane: the two methyls are no longer equivalent.
     EXPECT_EQ(carbon_class_sizes("[13CH3]CC"), (std::vector<int>{1, 1, 1}));
+}
+
+// ---- NMR equivalence ---------------------------------------------------------------
+// Expected 13C environment counts. Literature behaviour (e.g. Pretsch et al.; standard
+// texts on diastereotopicity and amide rotation): valine's isopropyl methyls differ,
+// linalool's =C(CH3)2 methyls differ (~17.6/25.7 ppm), DMF's N-methyls differ.
+
+struct Range {
+    int fewest;
+    int most;
+    friend bool operator==(const Range&, const Range&) = default;
+};
+
+std::ostream& operator<<(std::ostream& out, const Range& range) {
+    return out << "[" << range.fewest << ", " << range.most << "]";
+}
+
+Range environments(std::string_view smiles) {
+    const auto molecule = parse_ok(smiles);
+    const auto equivalence = arise::chem::nmr_equivalence(molecule);
+    return Range{
+        .fewest = arise::chem::carbon_environments(molecule, equivalence.fewest),
+        .most = arise::chem::carbon_environments(molecule, equivalence.most),
+    };
+}
+
+int topological(std::string_view smiles) {
+    const auto molecule = parse_ok(smiles);
+    return arise::chem::carbon_environments(molecule, symmetry_classes(molecule));
+}
+
+TEST(NmrEquivalence, EZGeometrySplitsAlways) {
+    EXPECT_EQ(topological("C=CC(C)(O)CCC=C(C)C"), 9);  // linalool
+    EXPECT_EQ(environments("C=CC(C)(O)CCC=C(C)C"), (Range{10, 10}));
+    EXPECT_EQ(environments("CC=C(C)C"), (Range{5, 5}));     // 2-methyl-2-butene
+    EXPECT_EQ(environments("ON=C1CCCCC1"), (Range{6, 6}));  // cyclohexanone oxime
+    EXPECT_EQ(environments("CC(C)=NO"), (Range{3, 3}));     // acetone oxime
+}
+
+TEST(NmrEquivalence, EZNeedsDifferentGroupsOnTheOtherEnd) {
+    EXPECT_EQ(environments("CC(C)=C(C)C"), (Range{2, 2}));  // tetramethylethylene
+    EXPECT_EQ(environments("C=C(C)C"), (Range{3, 3}));      // isobutylene: =CH2 end
+}
+
+TEST(NmrEquivalence, AmideRotationSplitsAlways) {
+    EXPECT_EQ(topological("CN(C)C=O"), 2);  // DMF
+    EXPECT_EQ(environments("CN(C)C=O"), (Range{3, 3}));
+    EXPECT_EQ(environments("CC(=O)N(C)C"), (Range{4, 4}));  // N,N-dimethylacetamide
+    EXPECT_EQ(environments("CN(C)C=S"), (Range{3, 3}));     // thioamide
+}
+
+TEST(NmrEquivalence, BorderlineRotationGivesARange) {
+    EXPECT_EQ(environments("CN(C)C(=O)N(C)C"), (Range{2, 3}));  // tetramethylurea
+    EXPECT_EQ(environments("COC(=O)N(C)C"), (Range{3, 4}));     // methyl dimethylcarbamate
+    EXPECT_EQ(environments("CN(C)C=CC(C)=O"), (Range{5, 6}));   // enaminone
+}
+
+TEST(NmrEquivalence, DiastereotopicGroupsGiveARange) {
+    EXPECT_EQ(environments("CC(C)C(N)C(=O)O"), (Range{4, 5}));           // valine
+    EXPECT_EQ(environments("CC(C)CC(C)O"), (Range{5, 6}));               // 4-methyl-2-pentanol
+    EXPECT_EQ(environments("C=CS(=O)C(C)C"), (Range{4, 5}));             // chiral sulfoxide
+    EXPECT_EQ(environments("CP(=O)(C(C)C)C1=CC=CC=C1"), (Range{7, 8}));  // chiral P
+}
+
+TEST(NmrEquivalence, SeveralProchiralCentresAlsoGiveARange) {
+    // nmrshiftdb2 10017805: no stereocentre, yet each acetal's two OEt groups give
+    // different peaks, because several prochiral centres make each other's groups
+    // diastereotopic. Over-splitting only widens the range, which is the safe direction.
+    const auto range = environments("CCOC(OCC)C(C(C)C)C(OCC)OCC");
+    EXPECT_EQ(range.fewest, 6);
+    EXPECT_GE(range.most, 8);
+}
+
+TEST(NmrEquivalence, OneProchiralCentreAloneKeepsEquivalence) {
+    // Isopropanol: one prochiral centre, no stereocentre; the methyls are enantiotopic
+    // and give one peak.
+    EXPECT_EQ(environments("CC(C)O"), (Range{2, 2}));
+}
+
+TEST(NmrEquivalence, UnknownStereoCanBreakASymmetry) {
+    // Hexitols: mannitol shows 3 carbon environments, sorbitol 6; SMILES without stereo
+    // cannot tell them apart.
+    EXPECT_EQ(environments("OCC(O)C(O)C(O)C(O)CO"), (Range{3, 6}));
+}
+
+TEST(NmrEquivalence, FastRotationKeepsEquivalence) {
+    // tert-butyl methyls (three identical groups) and a phenyl's ortho carbons stay
+    // equivalent even next to a stereocentre.
+    EXPECT_EQ(environments("CC(C)(C)C(C)O"), (Range{4, 4}));     // 3,3-dimethyl-2-butanol
+    EXPECT_EQ(environments("CC(O)C1=CC=CC=C1"), (Range{6, 6}));  // 1-phenylethanol
+    EXPECT_EQ(environments("CCOC(=O)C"), (Range{4, 4}));         // ethyl acetate
+    EXPECT_EQ(environments("CC1=CC=C(C)C=C1"), (Range{3, 3}));   // p-xylene
+}
+
+TEST(NmrEquivalence, NeverFewerClassesThanTopology) {
+    for (const auto* smiles : {"CC(C)C(N)C(=O)O", "CN(C)C=O", "OCC(O)C(O)C(O)C(O)CO"}) {
+        const auto range = environments(smiles);
+        EXPECT_GE(range.fewest, topological(smiles)) << smiles;
+        EXPECT_GE(range.most, range.fewest) << smiles;
+    }
 }
 
 // ---- Functional groups -------------------------------------------------------------

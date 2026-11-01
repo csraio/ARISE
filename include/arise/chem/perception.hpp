@@ -33,6 +33,35 @@ namespace arise::chem {
 /// are not equivalent.
 [[nodiscard]] std::vector<std::size_t> symmetry_classes(const Molecule& molecule);
 
+/// Which atoms give the same NMR signal. Topological symmetry (symmetry_classes) is not
+/// enough: geometry, slow rotation and stereochemistry make some topologically equivalent
+/// groups inequivalent in NMR. Because ARISE must never make an "expert" call that could
+/// rule out the true structure, uncertain cases give a range between two partitions.
+/// Classes are numbered from 0 in order of first appearance, as in symmetry_classes.
+struct NmrEquivalence {
+    /// Splits that always happen at room temperature (the fewest signals):
+    /// - E/Z: two identical groups on one end of a non-aromatic C=C or C=N whose other end
+    ///   carries two different groups (a nitrogen lone pair counts as a group), e.g. the
+    ///   =C(CH3)2 methyls of linalool, the alpha-CH2 groups of an oxime;
+    /// - slow rotation: the two identical N-groups of an amide or thioamide (DMF).
+    std::vector<std::size_t> fewest;
+    /// Additionally, splits that may or may not show (the most signals):
+    /// - borderline rotation: identical N-groups of carbamates, ureas and enaminones;
+    /// - when any stereocentre exists (sp3 C with four different groups, sulfoxide S,
+    ///   P with three different groups) or at least two prochiral centres:
+    ///   diastereotopic pairs (an sp3 carbon carrying two identical groups and two other
+    ///   different ones, e.g. valine's isopropyl), and every stereocentre on its own, since
+    ///   unknown relative configuration can break a symmetry (mannitol has 3 carbon
+    ///   environments, sorbitol 6). Over-splitting only widens the range.
+    std::vector<std::size_t> most;
+};
+
+[[nodiscard]] NmrEquivalence nmr_equivalence(const Molecule& molecule);
+
+/// Number of distinct classes among the carbon atoms of `classes` (one entry per atom).
+[[nodiscard]] int carbon_environments(const Molecule& molecule,
+                                      const std::vector<std::size_t>& classes);
+
 /// Functional groups a chemist can confirm or rule out.
 enum class Group : std::uint8_t {
     CarboxylicAcid,  // C(=O)OH
