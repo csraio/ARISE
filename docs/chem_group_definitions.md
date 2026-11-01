@@ -72,34 +72,55 @@ not written from memory. 3b's suggestion rules use those measured ranges.
   group: fr_ketone, fr_aldehyde, fr_COO2 (acid), fr_ester, fr_Al_OH (alcohol + enol),
   fr_phenol, fr_nitrile, fr_urea, fr_benzene, fr_pyridine, fr_furan, fr_thiophene.
 - **Oxime ethers** (C=N–O–C) get no group: their C=N carbon overlaps oximes' in
-  nmrshiftdb2 (oximes: median 152.8 ppm, 5–95% 146.4–163.1, n = 98; oxime ethers: median
-  156.4 ppm, 147.6–167.0, n = 160), so a separate group would not be told apart by shift.
+  nmrshiftdb2, so a separate group would not be told apart by shift. Measured by
+  `scripts/build_reference_sets.py` (`measurements.tsv`; a test holds these rows to it):
+
+  | Class | n | Median (ppm) | 5–95% (ppm) |
+  |---|---|---|---|
+  | oxime | 98 | 152.4 | 146.4–162.2 |
+  | oxime-ether | 160 | 156.4 | 147.6–166.8 |
 
 ## Known differences from the external checks
 Every disagreement is listed by molecule in `tests/data/reference/known_differences.tsv`
 (hand-written; each row names its category). A listed row that starts agreeing fails the
-test, so the list cannot go stale. Categories, from the first full run (ChEBI release 256,
-2,186 molecules; RDKit 2025.09.3, 4,655 PubChem candidates):
+test, so the list cannot go stale. Categories (ChEBI release 256, 2,184 molecules; RDKit
+2025.09.3, 4,792 PubChem candidates; a test holds this table and these counts to the data
+files):
 
 | Category | Rows | Source | Reason |
 |---|---|---|---|
 | formate | 51 | RDKit | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
+| alpha-lactone | 1 | RDKit | fr_ester needs two distinct carbons around the ester O; ARISE counts it |
+| bridged-benzene | 1 | RDKit | a bridged six-ring outside RDKit's smallest-ring set; ARISE finds the benzene |
+| ynol | 1 | RDKit | OH on an alkyne carbon: neither alcohol nor enol |
 | chebi-error | 12 | ChEBI | ChEBI asserts a group whose atoms the structure lacks (e.g. "amine" with no N) |
 | oxime-ether | 11 | ChEBI | ChEBI calls oxime ethers oximes and ethers; ARISE assigns no group (user decision) |
 | tautomer | 10 | ChEBI | ChEBI classifies another tautomer (N-hydroxyguanidine, enol/keto forms, 4-iminopyridine) |
-| urea-not-carboxamide | 5 | ChEBI | ureas are their own group (user decision) |
 | pyridone-scope | 5 | ChEBI | ring with N=C, two ring C=O, or a dihydro ring: outside row 13 |
+| urea-not-carboxamide | 5 | ChEBI | ureas are their own group (user decision) |
 | carbonic-monoester | 4 | ChEBI | one O is OH; a carbonate ester needs carbon on both O |
 | formamide | 3 | ChEBI | formamides are not aldehydes (user decision) |
-| enol-as-alcohol | 2 | ChEBI | alcohol means OH on an sp3 carbon |
 | enol-ester | 2 | ChEBI | enol means an OH on a C=C carbon |
-| pyrrole-n, hydroxylamine-n, amide-n | 1 each | ChEBI | these N are not amines (row 15) |
+| amide-n | 1 | ChEBI | an amide N is not an amine (row 15) |
+| enol-as-alcohol | 1 | ChEBI | alcohol means OH on an sp3 carbon |
 | furan-o | 1 | ChEBI | an aromatic ring O is not an ether (user decision) |
 | hydrazone | 1 | ChEBI | imines exclude C=N–N (row 19) |
+| hydroxylamine-n | 1 | ChEBI | an N–O nitrogen is a hydroxylamine, not an amine (row 15) |
+| pyrrole-n | 1 | ChEBI | the pyrrole N is aromatic, not an amine (row 15; user decision) |
 | thiourea | 1 | ChEBI | urea needs C=O |
-| ynol | 1 | RDKit | OH on an alkyne carbon: neither alcohol nor enol |
-| bridged-benzene | 1 | RDKit | a bridged six-ring outside RDKit's smallest-ring set; ARISE finds the benzene |
-| alpha-lactone | 1 | RDKit | fr_ester needs two distinct carbons around the ester O; ARISE counts it |
+| ring-pattern | 1 | PubChem | RDKit has no pyrrole fragment; this pattern (written like fr_furan o1cccc1) is PubChem CID 8027 (1H-pyrrole), InChIKey KAESVJOAVNADME-UHFFFAOYSA-N |
+| charged | 5 | chem tests | ARISE rejects charged species as candidates (molecule.hpp StructureIssue) |
+| unsupported-notation | 5 | chem tests | ARISE reads Kekulé SMILES: no quadruple bonds, aromatic ':' bonds, lowercase aromatic atoms, @TH-style stereo classes or atom maps (molecule.hpp) |
+| anhydride-not-ester | 2 | chem tests | fr_ester counts each C(=O)O of an anhydride; anhydrides are their own group (row 6) |
+| carbamic-acid | 1 | chem tests | fr_COO2 counts the C(=O)OH; a carboxylic acid needs carbon or H on the acyl side, and carbamic acids are excluded from row 8 |
+| carbonic-monoester | 1 | chem tests | one O is OH; a carbonate ester needs carbon on both O |
+| conflicting-ring-bond | 1 | chem tests | the two ends of a ring closure give different bond orders, an error in OpenSMILES; RDKit takes one of them |
+| explicit-h-notation | 1 | chem tests | RDKit ranks atoms on the graph as written, so a CH3 with explicit H differs from one with implicit H; ARISE counts explicit [H] toward the neighbour (perception.hpp) |
+| formaldehyde | 1 | chem tests | fr_aldehyde needs carbon on the carbonyl; formaldehyde is an aldehyde (user decision) |
+| formate | 1 | chem tests | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
+| mixture | 1 | chem tests | ARISE reads one molecule; '.' is a ParseError (molecule.hpp) |
+| unsupported-element | 1 | chem tests | outside ARISE's elements (molecule.hpp) |
+| nitro-cleanup | 1 | chem tests | RDKit rewrites N(=O)=O as [N+](=O)[O-] while reading, so its two O differ as written; the two nitro O are equivalent by resonance |
 
 **Gaps these checks exposed** (no group today; add one if it matters): OH on a
 heteroaromatic carbon other than pyridine (hydroxyfurans, pyrazolols), ynols, oxime ethers,

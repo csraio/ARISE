@@ -27,11 +27,13 @@ struct DeptPeak {
     friend bool operator==(const DeptPeak&, const DeptPeak&) = default;
 };
 
-/// Plausibility window for 13C shifts, deliberately wide: organic 13C shifts lie in
-/// roughly 0 to 230 ppm (Pretsch et al., Structure Determination of Organic Compounds).
+/// Plausibility window for 13C shifts: a convention, deliberately wide. It must contain
+/// every 13C shift nmrshiftdb2 lists for an in-scope molecule (measured by
+/// scripts/build_reference_sets.py into tests/data/reference/measurements.tsv and checked
+/// by a test): iodomethanes reach about -46 ppm, thio- and selenoketones about 293 ppm.
 /// Values far outside almost always mean the wrong column, such as Hz offsets.
-inline constexpr core::Ppm kMinCarbonShift{-20.0};
-inline constexpr core::Ppm kMaxCarbonShift{250.0};
+inline constexpr core::Ppm kMinCarbonShift{-50.0};
+inline constexpr core::Ppm kMaxCarbonShift{300.0};
 
 /// Parses a 13C peak list: the shared peak-list format (see parse_peak_csv) with
 /// columns `shift_ppm` (required) and `intensity` (optional, any finite value).

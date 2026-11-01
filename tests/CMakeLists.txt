@@ -38,6 +38,25 @@ arise_embed_chunks("${ARISE_REFERENCE_DIR}/chebi_classes.tsv"
                    ARISE_CHEBI_CHUNKS ARISE_CHEBI_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/known_differences.tsv"
                    ARISE_KNOWN_DIFFERENCES_CHUNKS ARISE_KNOWN_DIFFERENCES_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/measurements.tsv"
+                   ARISE_MEASUREMENTS_CHUNKS ARISE_MEASUREMENTS_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/spec_rdkit_oracle.tsv"
+                   ARISE_SPEC_ORACLE_CHUNKS ARISE_SPEC_ORACLE_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/valence_probes.tsv"
+                   ARISE_VALENCE_PROBES_CHUNKS ARISE_VALENCE_PROBES_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/dou_checks.tsv"
+                   ARISE_DOU_CHECKS_CHUNKS ARISE_DOU_CHECKS_CHUNK_COUNT)
+# The signed-off definitions, so tests can hold the doc's ChEBI IDs and numbers to the data.
+arise_embed_chunks("${PROJECT_SOURCE_DIR}/docs/chem_group_definitions.md"
+                   ARISE_GROUP_DEFINITIONS_CHUNKS ARISE_GROUP_DEFINITIONS_CHUNK_COUNT)
+# The hand-written chem tests, so a test can require RDKit's view of every SMILES in them.
+set(ARISE_SPEC_SOURCES_CHUNKS "")
+set(ARISE_SPEC_SOURCES_CHUNK_COUNT 0)
+foreach(source molecule_test.cpp perception_test.cpp)
+    arise_embed_chunks("${CMAKE_CURRENT_SOURCE_DIR}/chem/${source}" chunks count)
+    string(APPEND ARISE_SPEC_SOURCES_CHUNKS "${chunks}")
+    math(EXPR ARISE_SPEC_SOURCES_CHUNK_COUNT "${ARISE_SPEC_SOURCES_CHUNK_COUNT} + ${count}")
+endforeach()
 configure_file(fixtures/reference_fixtures.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/fixtures/reference_fixtures.hpp" @ONLY)
 add_library(arise_test_fixtures INTERFACE)

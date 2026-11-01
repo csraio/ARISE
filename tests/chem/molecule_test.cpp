@@ -286,6 +286,21 @@ TEST(StructureIssue, ExcessValenceIsFlagged) {
     EXPECT_EQ(structure_issue(parse_ok("FC(F)(F)(F)F")), StructureIssue::UnusualValence);
 }
 
+TEST(StructureIssue, NeutralNitrogenWithFiveSingleBondsIsUnusual) {
+    // Valence 5 needs a double bond (N(=O)=O); five sigma bonds cannot exist on neutral N
+    // (user decision 2026-11-01; checked against RDKit by Provenance.Valences*).
+    EXPECT_EQ(structure_issue(parse_ok("CN(C)(C)C")), StructureIssue::UnusualValence);
+    EXPECT_EQ(structure_issue(parse_ok("C[N](C)(C)(C)C")), StructureIssue::UnusualValence);
+    EXPECT_EQ(structure_issue(parse_ok("CN(=O)=O")), std::nullopt);
+}
+
+TEST(StructureIssue, IodineMayBeHypervalent) {
+    // Iodine valences 1, 3, 5 (hypervalent iodine reagents; user decision 2026-11-01).
+    EXPECT_EQ(structure_issue(parse_ok("CC(=O)OI(OC(C)=O)C1=CC=CC=C1")), std::nullopt);
+    EXPECT_EQ(hydrogen_counts(parse_ok("CI(C)C")), (std::vector<int>{3, 0, 3, 3}));
+    EXPECT_EQ(structure_issue(parse_ok("C[I]C")), StructureIssue::Radical);
+}
+
 TEST(StructureIssue, IssuesHaveReadableNames) {
     EXPECT_EQ(arise::chem::to_string(StructureIssue::Charged), "charged");
     EXPECT_EQ(arise::chem::to_string(StructureIssue::Radical), "radical");

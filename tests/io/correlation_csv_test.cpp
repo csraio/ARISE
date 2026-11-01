@@ -75,7 +75,7 @@ TEST(HsqcCsv, BothShiftColumnsAreRequired) {
 }
 
 TEST(HsqcCsv, AcceptsTheWindowEdgesOfBothNuclei) {
-    const auto result = parse_hsqc_csv("h_ppm,c_ppm\n-10,-20\n25,250\n");
+    const auto result = parse_hsqc_csv("h_ppm,c_ppm\n-10,-50\n25,300\n");
     ASSERT_TRUE(result.ok()) << result.error().message;
     EXPECT_EQ(result.value()[0].proton, arise::io::kMinProtonShift);
     EXPECT_EQ(result.value()[0].carbon, arise::io::kMinCarbonShift);
@@ -90,8 +90,8 @@ TEST(HsqcCsv, SwappedColumnsAreCaught) {
 }
 
 TEST(HsqcCsv, CarbonShiftOutsideItsWindowIsOutOfRange) {
-    expect_error(parse_hsqc_csv, "h_ppm,c_ppm\n7.28,260\n", ErrorCode::OutOfRange,
-                 {"line 2", "c_ppm", "260"});
+    expect_error(parse_hsqc_csv, "h_ppm,c_ppm\n7.28,310\n", ErrorCode::OutOfRange,
+                 {"line 2", "c_ppm", "310"});
 }
 
 TEST(HsqcCsv, ZeroIntensityIsOutOfRange) {
@@ -134,7 +134,7 @@ TEST(HmbcCsv, AnyFiniteIntensityIsAllowed) {
 TEST(HmbcCsv, UsesTheSameShiftWindows) {
     expect_error(parse_hmbc_csv, "h_ppm,c_ppm\n144.2,1.24\n", ErrorCode::OutOfRange,
                  {"line 2", "h_ppm", "swapped"});
-    expect_error(parse_hmbc_csv, "h_ppm,c_ppm\n1.24,-25\n", ErrorCode::OutOfRange,
+    expect_error(parse_hmbc_csv, "h_ppm,c_ppm\n1.24,-55\n", ErrorCode::OutOfRange,
                  {"line 2", "c_ppm"});
 }
 

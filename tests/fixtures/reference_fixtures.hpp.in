@@ -35,6 +35,35 @@ inline constexpr std::array<std::string_view, @ARISE_KNOWN_DIFFERENCES_CHUNK_COU
     kKnownDifferencesChunks{
 @ARISE_KNOWN_DIFFERENCES_CHUNKS@};
 
+// Measurements over nmrshiftdb2 (shift ranges, C=N shifts); see the file header.
+inline constexpr std::array<std::string_view, @ARISE_MEASUREMENTS_CHUNK_COUNT@>
+    kMeasurementsChunks{
+@ARISE_MEASUREMENTS_CHUNKS@};
+
+// RDKit's reading of every SMILES literal in the hand-written chem tests.
+inline constexpr std::array<std::string_view, @ARISE_SPEC_ORACLE_CHUNK_COUNT@>
+    kSpecOracleChunks{
+@ARISE_SPEC_ORACLE_CHUNKS@};
+
+// RDKit's verdict and hydrogens for rule-generated valence probe molecules.
+inline constexpr std::array<std::string_view, @ARISE_VALENCE_PROBES_CHUNK_COUNT@>
+    kValenceProbesChunks{
+@ARISE_VALENCE_PROBES_CHUNKS@};
+
+// Formula and rings + pi bonds (RDKit) of the ChEBI and nmrshiftdb2 sample molecules.
+inline constexpr std::array<std::string_view, @ARISE_DOU_CHECKS_CHUNK_COUNT@> kDouChecksChunks{
+@ARISE_DOU_CHECKS_CHUNKS@};
+
+// docs/chem_group_definitions.md, the chemist's signed-off group definitions.
+inline constexpr std::array<std::string_view, @ARISE_GROUP_DEFINITIONS_CHUNK_COUNT@>
+    kGroupDefinitionsChunks{
+@ARISE_GROUP_DEFINITIONS_CHUNKS@};
+
+// tests/chem/molecule_test.cpp and perception_test.cpp (the hand-written spec cases).
+inline constexpr std::array<std::string_view, @ARISE_SPEC_SOURCES_CHUNK_COUNT@>
+    kSpecSourcesChunks{
+@ARISE_SPEC_SOURCES_CHUNKS@};
+
 template <std::size_t N>
 std::string join_chunks(const std::array<std::string_view, N>& chunks) {
     std::string text;
