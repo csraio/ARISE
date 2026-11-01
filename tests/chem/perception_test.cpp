@@ -348,6 +348,12 @@ TEST(Groups, AmidesCarbamatesUreas) {
     EXPECT_EQ(groups("O=C1NCCO1", Group::CarbamateEster), 1);  // oxazolidinone
     EXPECT_EQ(groups("NC(N)=O", Group::CarbamateEster), 0);
     EXPECT_EQ(groups("NC(=O)O", Group::CarbamateEster), 0);  // carbamic acid: no ester O
+    // O-carbamoyl oximes count (user decision 2026-10-31, as in ChEBI): methomyl, aldicarb.
+    EXPECT_EQ(groups("CNC(=O)ON=C(C)SC", Group::CarbamateEster), 1);
+    EXPECT_EQ(groups("CNC(=O)ON=CC(C)(C)SC", Group::CarbamateEster), 1);
+    EXPECT_EQ(groups("CNC(=O)ON=C(C)SC", Group::CarboxylicEster), 0);
+    EXPECT_EQ(groups("CNC(=O)ONC", Group::CarbamateEster), 0);       // O on an amine N: not oxime
+    EXPECT_EQ(groups("CC(=O)ON=C(C)C", Group::CarboxylicEster), 0);  // O-acyl oxime: not decided
     EXPECT_EQ(groups("NC(N)=O", Group::Urea), 1);
     EXPECT_EQ(groups("CN(C)C(=O)N(C)C", Group::Urea), 1);
     EXPECT_EQ(groups("O=C1NCCN1", Group::Urea), 1);  // imidazolidinone

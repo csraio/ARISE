@@ -79,7 +79,7 @@ enum class Group : std::uint8_t {
     CarbonateEster,       // C-O-C(=O)-O-C
     CarboxylicAnhydride,  // C(=O)-O-C(=O), counted per bridging O
     Carboxamide,          // C(=O)-N, acyl side C or H; lactams, formamides
-    CarbamateEster,       // C-O-C(=O)-N
+    CarbamateEster,       // C-O-C(=O)-N, or C=N-O-C(=O)-N (O-carbamoyl oximes)
     Urea,                 // N-C(=O)-N
     Alcohol,              // OH on an sp3 carbon
     Enol,                 // OH on a non-aromatic C=C carbon

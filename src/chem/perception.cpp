@@ -600,6 +600,14 @@ bool ester_oxygen(const Molecule& molecule, std::size_t oxygen, std::size_t carb
            !is_carbonyl_carbon(molecule, others[0]);
 }
 
+// A carbamate's O bonded to an oxime N (C=N-O-C(=O)-N: methomyl, aldicarb).
+bool oxime_carbamate_oxygen(const Molecule& molecule, std::size_t oxygen, std::size_t carbonyl) {
+    const auto others = heavy_neighbors(molecule, oxygen, carbonyl);
+    return molecule.hydrogen_count(oxygen) == 0 && others.size() == 1 &&
+           is_element(molecule, others[0], Element::N) &&
+           has_double_bond_to(molecule, others[0], Element::C);
+}
+
 bool carbonyl_is(const Molecule& molecule, std::size_t carbon, Group group) {
     const auto sides = carbonyl_sides(molecule, carbon);
     const std::size_t o = sides.oxygens.size();
@@ -626,7 +634,8 @@ bool carbonyl_is(const Molecule& molecule, std::size_t carbon, Group group) {
         case Group::Carboxamide:
             return o == 0 && n == 1;
         case Group::CarbamateEster:
-            return o == 1 && n == 1 && any_ester_o();
+            return o == 1 && n == 1 &&
+                   (any_ester_o() || oxime_carbamate_oxygen(molecule, sides.oxygens[0], carbon));
         case Group::Urea:
             return o == 0 && n == 2;
         default:
