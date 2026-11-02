@@ -359,6 +359,19 @@ int graph_unsaturation(const Molecule& molecule) {
     return (bonds - atoms + 1) + pi;
 }
 
+// The formula's degrees of unsaturation count every C as 4-valent and every O as
+// 2-valent. An atom away from that valence (a charge pair in a charge-separated structure,
+// such as [CH2+]COCC[O-]) shifts it: DoU = rings + pi + sum(lowest valence - valence) / 2.
+int formula_unsaturation(const Molecule& molecule) {
+    int excess = 0;
+    for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {
+        const auto element = molecule.atoms()[i].element;
+        const int lowest = element == arise::chem::Element::C ? 4 : 2;  // C4H8O2: C, O
+        excess += lowest - molecule.valence(i);
+    }
+    return graph_unsaturation(molecule) + (excess / 2);
+}
+
 // One PubChem candidate against the formula it was searched with.
 void expect_matches_formula(const arise::io::Candidate& candidate,
                             const std::map<std::string, int>& expected_counts,
@@ -367,15 +380,17 @@ void expect_matches_formula(const arise::io::Candidate& candidate,
     ASSERT_TRUE(molecule.ok()) << candidate.smiles;
     EXPECT_EQ(element_counts(molecule.value()), expected_counts) << candidate.smiles;
     if (!structure_issue(molecule.value()).has_value()) {
-        // Valid closed-shell structures: rings + pi bonds equal the formula's DoU.
-        EXPECT_EQ(graph_unsaturation(molecule.value()), expected_unsaturation) << candidate.smiles;
+        // Valid closed-shell structures: rings + pi bonds, corrected for atoms away from
+        // their lowest valence, equal the formula's DoU.
+        EXPECT_EQ(formula_unsaturation(molecule.value()), expected_unsaturation)
+            << candidate.smiles;
     }
 }
 
 TEST(Smiles, EveryPubChemC4H8O2StructureMatchesTheSearchedFormula) {
     // PubChem returned these for the formula C4H8O2, so every parsed molecule must
     // contain exactly 4 C, 8 H and 2 O. The reference comes from PubChem, not from
-    // ARISE's own valence rules, so this checks the reader on all 131 real molecules.
+    // ARISE's own valence rules, so this checks the reader on all 144 real molecules.
     const auto formula = arise::core::Formula::parse("C4H8O2");
     ASSERT_TRUE(formula.ok());
     const auto unsaturation = formula.value().degrees_of_unsaturation();
@@ -389,14 +404,15 @@ TEST(Smiles, EveryPubChemC4H8O2StructureMatchesTheSearchedFormula) {
 }
 
 TEST(Smiles, ReadsEveryCleanedPubChemC4H8O2Structure) {
-    // After io cleaning: 131 structures. Counted independently with grep: exactly 9 are
-    // radical/carbene fragments ([CH], [CH2]); the other 122 are real candidates.
+    // After io cleaning: 144 structures. Counted by RDKit (radical electrons): exactly 9
+    // are radical/carbene fragments ([CH], [CH2]); the other 135 are closed-shell
+    // candidates, 13 of them charge-separated.
     const auto imported = arise::io::import_pubchem_csv(arise::test::kPubChemC4H8O2);
     ASSERT_TRUE(imported.ok()) << imported.error().message;
-    ASSERT_EQ(imported.value().candidates.size(), 131U);
+    ASSERT_EQ(imported.value().candidates.size(), 144U);
     const auto tally = tally_issues(imported.value().candidates);
     EXPECT_EQ(tally.radicals, 9);
-    EXPECT_EQ(tally.clean, 122);
+    EXPECT_EQ(tally.clean, 135);
     EXPECT_EQ(tally.other, 0);
 }
 

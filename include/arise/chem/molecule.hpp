@@ -85,18 +85,23 @@ private:
 
 /// Why a parsed molecule is not a usable candidate.
 enum class StructureIssue : std::uint8_t {
-    Charged,         // an atom with a formal charge
+    Charged,         // an ion: formal charges that do not sum to zero
     Radical,         // unpaired electrons: valence below or between normal valences
-    UnusualValence,  // valence above the element's highest normal valence
+    UnusualValence,  // valence above the atom's highest normal valence
 };
 
 /// "charged", "radical" or "unusual valence".
 [[nodiscard]] std::string_view to_string(StructureIssue issue) noexcept;
 
-/// The first issue found, checked in this order: charge, radical, unusual valence.
+/// The first issue found, checked in this order: net charge, radical, unusual valence.
+/// Charge-separated neutral molecules are fine: nitro groups, N-oxides, zwitterions and
+/// isocyanides, which PubChem writes with formal charges ([N+](=O)[O-]).
 /// Normal valences: H, F, Cl, Br 1; I 1, 3, 5; O 2; B 3; C, Si 4; N, P 3, 5; S, Se 2, 4, 6.
-/// Neutral N at valence 5 with only single bonds is an unusual valence (five sigma bonds).
-/// Empty for a closed-shell neutral molecule.
+/// A charge shifts them: groups 15-17 gain a bond when positive and lose one when negative
+/// (N+ 4, O- 1, S+ 3/5/7), boron the reverse (B- 4), carbon and silicon make 3 either way;
+/// second-period atoms shift only their lowest valence. Neutral N at valence 5 with only
+/// single bonds is an unusual valence (five sigma bonds).
+/// Empty for a closed-shell net-neutral molecule.
 [[nodiscard]] std::optional<StructureIssue> structure_issue(const Molecule& molecule);
 
 }  // namespace arise::chem

@@ -49,6 +49,25 @@ arise_embed_chunks("${ARISE_REFERENCE_DIR}/dou_checks.tsv"
 # The signed-off definitions, so tests can hold the doc's ChEBI IDs and numbers to the data.
 arise_embed_chunks("${PROJECT_SOURCE_DIR}/docs/chem_group_definitions.md"
                    ARISE_GROUP_DEFINITIONS_CHUNKS ARISE_GROUP_DEFINITIONS_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/pubchem_cleaning_oracle.tsv"
+                   ARISE_CLEANING_ORACLE_CHUNKS ARISE_CLEANING_ORACLE_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/named_compounds.tsv"
+                   ARISE_NAMED_COMPOUNDS_CHUNKS ARISE_NAMED_COMPOUNDS_CHUNK_COUNT)
+# Every recorded PubChem formula search, each file's chunks preceded by a "## <formula>"
+# chunk, for the cleaning check.
+set(ARISE_PUBCHEM_SEARCHES_CHUNKS "")
+set(ARISE_PUBCHEM_SEARCHES_CHUNK_COUNT 0)
+file(GLOB ARISE_PUBCHEM_SEARCHES "${CMAKE_CURRENT_SOURCE_DIR}/data/pubchem_*.csv")
+list(SORT ARISE_PUBCHEM_SEARCHES)
+foreach(search ${ARISE_PUBCHEM_SEARCHES})
+    get_filename_component(stem "${search}" NAME_WE)
+    string(REPLACE "pubchem_" "" formula "${stem}")
+    arise_embed_chunks("${search}" chunks count)
+    string(APPEND ARISE_PUBCHEM_SEARCHES_CHUNKS "    R\"ref(## ${formula}\n)ref\"sv,\n${chunks}")
+    math(EXPR ARISE_PUBCHEM_SEARCHES_CHUNK_COUNT
+         "${ARISE_PUBCHEM_SEARCHES_CHUNK_COUNT} + ${count} + 1")
+endforeach()
+
 # The hand-written chem tests, so a test can require RDKit's view of every SMILES in them.
 set(ARISE_SPEC_SOURCES_CHUNKS "")
 set(ARISE_SPEC_SOURCES_CHUNK_COUNT 0)

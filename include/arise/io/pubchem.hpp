@@ -20,7 +20,7 @@ namespace arise::io {
 /// Why a PubChem record was not kept as a candidate.
 enum class RemovalReason : std::uint8_t {
     Mixture,                // more than one component ('.')
-    Charged,                // a charged atom ('+' or '-' inside a bracket atom)
+    Charged,                // an ion: formal charges that do not sum to zero
     DuplicateConnectivity,  // same structure as a record with a lower CID
 };
 
@@ -50,7 +50,9 @@ struct PubChemImport {
 };
 
 /// Reads PubChem's CID,ConnectivitySMILES CSV and cleans it, removing, in this order:
-/// mixtures, charged species, then duplicate structures (keeping the lowest CID).
+/// mixtures, ions, then duplicate structures (keeping the lowest CID). Charge-separated
+/// neutral molecules, whose formal charges sum to zero, are kept: PubChem writes nitro
+/// groups, N-oxides, zwitterions and isocyanides that way ([N+](=O)[O-]).
 /// Records are processed by ascending CID, so the result does not depend on PubChem's
 /// row order. A header with no rows is a valid, empty result (no compound has that
 /// formula). ParseError (naming the line) for anything that is not that CSV: a wrong

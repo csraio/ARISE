@@ -33,6 +33,7 @@ import json
 import re
 import statistics
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -95,6 +96,7 @@ CHEBI_CLASSES = definition_classes()
 CHEBI_RINGS = [("fr_benzene", None), ("fr_pyridine", None), ("fr_furan", None),
                ("fr_thiophene", None), ("n1cccc1", Chem.MolFromSmarts("n1cccc1"))]
 CHEBI_PER_CLASS = 100
+CHEBI_CHARGED_PER_CLASS = 10
 CHEBI_MAX_HEAVY_ATOMS = 40
 
 
@@ -194,7 +196,7 @@ def nmrshiftdb_record(mol):
     heavy_count = sum(1 for a in mol.GetAtoms() if a.GetAtomicNum() > 1)
     if not elements <= ALLOWED or "C" not in elements or heavy_count > MAX_HEAVY_ATOMS:
         return None
-    if any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
+    if net_charge(mol) or any(a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
         return None
     if len(Chem.GetMolFrags(mol)) != 1:
         return None
@@ -277,9 +279,10 @@ def carbon_shifts(mol):
 
 
 def in_scope(mol):
-    """Neutral, single-fragment molecules of ARISE's elements (the scope of every sample)."""
-    return ({a.GetSymbol() for a in mol.GetAtoms()} <= ALLOWED
-            and not any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in mol.GetAtoms())
+    """Net-neutral, single-fragment molecules of ARISE's elements (the scope of every
+    sample); charge-separated forms such as nitro groups and N-oxides are included."""
+    return ({a.GetSymbol() for a in mol.GetAtoms()} <= ALLOWED and net_charge(mol) == 0
+            and not any(a.GetNumRadicalElectrons() for a in mol.GetAtoms())
             and len(Chem.GetMolFrags(mol)) == 1)
 
 
@@ -335,8 +338,43 @@ def pubchem_rows(path):
     return sorted(rows)
 
 
-def charged_or_mixture(smiles):
-    return "." in smiles or re.search(r"\[[^\]]*[+-][^\]]*\]", smiles) is not None
+def net_charge(mol):
+    return sum(a.GetFormalCharge() for a in mol.GetAtoms())
+
+
+def cleaning_verdict(smiles):
+    """RDKit's view of one PubChem record, for the cleaning check: 'mixture' (several
+    components), 'ion' (charges that do not cancel), 'kept' (one neutral molecule, which
+    may be charge-separated: nitro, N-oxide, zwitterion), or 'unreadable'."""
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None:
+        return "unreadable"
+    if len(Chem.GetMolFrags(mol)) > 1:
+        return "mixture"
+    return "ion" if net_charge(mol) != 0 else "kept"
+
+
+def inchi_classes(mol):
+    """Per atom, its class in standard InChI's equivalence layer (AuxInfo /E:), numbered
+    by first appearance; atoms InChI lists in no class get one of their own. InChI applies
+    charge and resonance normalisation (the two O of a nitro group are equivalent) and
+    mobile-H (the two O of a carboxylic acid), so it may merge more than RDKit's ranks.
+    None if InChI fails."""
+    try:
+        _, aux = Chem.MolToInchiAndAuxInfo(mol)
+    except Exception:
+        return None
+    layers = dict(layer.split(":", 1) for layer in aux.split("/") if ":" in layer)
+    if "N" not in layers:
+        return None
+    original = [int(x) - 1 for x in layers["N"].split(";")[0].split(",")]
+    group = list(range(mol.GetNumAtoms()))
+    for members in re.findall(r"\(([\d,]+)\)", layers.get("E", "").split(";")[0]):
+        atoms = [original[int(x) - 1] for x in members.split(",")]
+        for atom in atoms:
+            group[atom] = atoms[0]
+    first = {}
+    return [first.setdefault(g, len(first)) for g in group]
 
 
 def symmetry_classes(mol):
@@ -402,7 +440,9 @@ def oracle_line(smiles):
     hydrogens = " ".join(str(a.GetTotalNumHs(includeNeighbors=True)) for a in mol.GetAtoms())
     classes = " ".join(str(c) for c in symmetry_classes(mol))
     fragments = " ".join(str(c) for c in fragment_counts(mol))
-    return f"{smiles}\t{hydrogens}\t{classes}\t{fragments}\t{differs}"
+    inchi = inchi_classes(mol)
+    inchi_text = " ".join(str(c) for c in inchi) if inchi is not None else "-"
+    return f"{smiles}\t{hydrogens}\t{classes}\t{fragments}\t{differs}\t{inchi_text}"
 
 
 def build_oracle(formulas):
@@ -413,13 +453,42 @@ def build_oracle(formulas):
             download(PUBCHEM_URL.format(formula), path)
         seen = set()
         for _, smiles in pubchem_rows(path):
-            if charged_or_mixture(smiles) or smiles in seen:
+            if cleaning_verdict(smiles) != "kept" or smiles in seen:
                 continue
             seen.add(smiles)
             line = oracle_line(smiles)
             if line is not None:
                 lines.append(line)
         print(f"oracle {formula}: {len(seen)} distinct", file=sys.stderr)
+    return lines
+
+
+def build_cleaning_oracle(formulas):
+    """RDKit's verdict on every record of the recorded PubChem formula searches."""
+    lines = []
+    for formula in formulas:
+        for cid, smiles in pubchem_rows(REPO / "tests" / "data" / f"pubchem_{formula}.csv"):
+            lines.append(f"{formula}\t{cid}\t{cleaning_verdict(smiles)}")
+    return lines
+
+
+# Compounds named by the chemist's question (charge-separated neutral molecules PubChem
+# writes with formal charges); CID and formula come from PubChem, never typed.
+NAMED_COMPOUNDS = ["nitrobenzene", "pyridine N-oxide", "trimethylamine N-oxide", "nitroethane"]
+PUBCHEM_NAME_URL = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{}/property/"
+                    "MolecularFormula,ConnectivitySMILES/JSON")
+
+
+def named_compounds():
+    lines = []
+    for name in NAMED_COMPOUNDS:
+        url = PUBCHEM_NAME_URL.format(urllib.parse.quote(name))
+        with urllib.request.urlopen(url, timeout=60) as response:
+            props = json.load(response)["PropertyTable"]["Properties"]
+        if len(props) != 1:
+            sys.exit(f"PubChem gives {len(props)} compounds for {name!r}")
+        p = props[0]
+        lines.append(f"{name}\t{p['CID']}\t{p['MolecularFormula']}\t{p['ConnectivitySMILES']}")
     return lines
 
 
@@ -471,6 +540,14 @@ def valence_probes():
         for h in range(5):
             atom = f"[{element}H{h}]" if h else f"[{element}]"
             smiles += [atom + "(C)" * k for k in range(7) if h + k <= 6]
+    # Charged probe atoms, each made net-neutral by a counter-charged group on its first
+    # methyl (CC[O-] for a cation, CC[N+](C)(C)C for an anion) so they test valence, not
+    # charge.
+    for element in ORGANIC_SUBSET + BRACKET_ONLY:
+        for sign, counter in (("+", "(CC[O-])"), ("-", "(CC[N+](C)(C)C)")):
+            for h in range(5):
+                atom = f"[{element}H{h}{sign}]" if h else f"[{element}{sign}]"
+                smiles += [atom + counter + "(C)" * (k - 1) for k in range(1, 7) if h + k <= 6]
     lines = []
     for s in smiles:
         mol = read_smiles(s)
@@ -586,9 +663,9 @@ def verify_ring_patterns():
 
 def chebi_record(mol):
     """(Kekule SMILES, RDKit ring counts) of a ChEBI structure in ARISE's scope, or None."""
-    if any(a.GetAtomicNum() == 0 or a.GetSymbol() not in ALLOWED or a.GetFormalCharge()
-           or a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
-        return None  # generic (R-group) structures, charged species, radicals
+    if any(a.GetAtomicNum() == 0 or a.GetSymbol() not in ALLOWED or a.GetNumRadicalElectrons()
+           for a in mol.GetAtoms()) or net_charge(mol):
+        return None  # generic (R-group) structures, ions, radicals
     if len(Chem.GetMolFrags(mol)) != 1 or mol.GetNumHeavyAtoms() > CHEBI_MAX_HEAVY_ATOMS:
         return None
     rings = ring_counts(mol)
@@ -617,6 +694,7 @@ def build_chebi(sdf_path, obo_path, structures_path):
     classes_of = chebi_classes_of(parents)
     members = collections.defaultdict(list)  # class -> [ChEBI id]
     records = {}
+    charged_ids = set()
     with gzip.open(sdf_path, "rb") as handle:
         for mol in Chem.ForwardSDMolSupplier(handle):
             if mol is None:
@@ -636,14 +714,20 @@ def build_chebi(sdf_path, obo_path, structures_path):
             if record is None:
                 continue
             records[chebi_id] = (record[0], sorted(classes), record[1])
+            if any(a.GetFormalCharge() for a in mol.GetAtoms()):
+                charged_ids.add(chebi_id)
             for cls in classes:
                 members[cls].append(chebi_id)
+    # Neutral molecules and charge-separated ones (zwitterions, N-oxides, nitro) are
+    # sampled separately, so widening the scope to the latter leaves the neutral sample
+    # unchanged.
     sample = set()
     for cls in CHEBI_CLASSES:
-        ids = sorted(members[cls])
-        step = max(1, len(ids) // CHEBI_PER_CLASS)
-        sample.update(ids[::step][:CHEBI_PER_CLASS])
-        print(f"chebi CHEBI:{cls}: {len(ids)} molecules", file=sys.stderr)
+        for charged, per_class in ((False, CHEBI_PER_CLASS), (True, CHEBI_CHARGED_PER_CLASS)):
+            ids = sorted(i for i in members[cls] if (i in charged_ids) == charged)
+            step = max(1, len(ids) // per_class)
+            sample.update(ids[::step][:per_class])
+        print(f"chebi CHEBI:{cls}: {len(members[cls])} molecules", file=sys.stderr)
     print(f"chebi: {len(records)} in scope, sampled {len(sample)}", file=sys.stderr)
     lines = [f"{i}\t{records[i][0]}\t{' '.join(str(c) for c in records[i][1])}"
              f"\t{' '.join(str(c) for c in records[i][2])}" for i in sorted(sample)]
@@ -700,13 +784,26 @@ def main():
          "# RDKit's verdict (ok = closed-shell molecule it accepts), RDKit's hydrogens on",
          "# atom 0."] + valence_probes(), ["RDKit's valence model"]))
 
-    formulas = ["C4H8O2", "C8H8O2", "C10H12O2"]
+    # The first three bring aromatic regioisomers; the last four bring the charge-separated
+    # neutral molecules PubChem writes with formal charges (nitro, N-oxide, zwitterion,
+    # isocyanide).
+    formulas = ["C4H8O2", "C8H8O2", "C10H12O2", "C6H5NO2", "C5H5NO", "C3H9NO", "C2H5NO2"]
     oracle = build_oracle(formulas)
+    (OUT / "pubchem_cleaning_oracle.tsv").write_text(header(
+        ["# RDKit's verdict on every record of the recorded PubChem formula searches",
+         "# (tests/data/pubchem_<formula>.csv): mixture, ion (net charge not zero), kept",
+         "# (one net-neutral molecule) or unreadable. Columns: formula, CID, verdict."]
+        + build_cleaning_oracle(formulas), [PUBCHEM_URL.format(f) for f in formulas]))
+    (OUT / "named_compounds.tsv").write_text(header(
+        ["# Charge-separated neutral compounds looked up by name on PubChem (NAMED_COMPOUNDS",
+         "# in the builder). Columns: name, CID, formula, ConnectivitySMILES."]
+        + named_compounds(), [PUBCHEM_NAME_URL]))
     (OUT / "pubchem_rdkit_oracle.tsv").write_text(header(
         ["# Columns: SMILES, per-atom total H, per-atom symmetry class (first appearance),",
          "# RDKit fragment counts in the order of the 'fragments:' line, 1 if RDKit's",
          "# aromaticity knowingly differs from ARISE's (rings ARISE does not model, quinoid",
-         "# tautomers, arynes).",
+         "# tautomers, arynes), standard InChI's equivalence classes (AuxInfo /E:; '-' if",
+         "# InChI fails).",
          "# fragments: " + " ".join(FRAGMENTS)] + oracle,
         [PUBCHEM_URL.format(f) for f in formulas]))
 

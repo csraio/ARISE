@@ -55,8 +55,10 @@ struct NmrEquivalence {
     /// - borderline rotation: identical N-groups of carbamates, ureas and enaminones;
     /// - when any stereocentre exists (sp3 C with four different groups, sulfoxide S,
     ///   P with three different groups) or at least two prochiral centres:
-    ///   diastereotopic pairs (an sp3 carbon carrying two identical groups and two other
-    ///   different ones, e.g. valine's isopropyl), and every stereocentre on its own, since
+    ///   diastereotopic pairs (an sp3 C or Si, or a quaternary N+, carrying two identical
+    ///   groups and two other different ones, e.g. valine's isopropyl; a P, S, Se or I
+    ///   centre with one identical pair among three or more groups, e.g. ArI(OAc)2), and
+    ///   every stereocentre on its own, since
     ///   unknown relative configuration can break a symmetry (mannitol has 3 carbon
     ///   environments, sorbitol 6). Over-splitting only widens the range.
     std::vector<std::size_t> most;

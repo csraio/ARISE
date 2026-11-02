@@ -8,7 +8,9 @@
 namespace arise::chem {
 namespace {
 
-constexpr int kAromaticBondCode = 4;  // distinct from bond orders 1-3
+constexpr int kAromaticBondCode = 4;     // distinct from bond orders 1-3
+constexpr int kDelocalizedBondCode = 5;  // a bond to a resonance-shared terminal atom
+constexpr int kDelocalizedCharge = 100;  // invariant of a resonance-shared terminal atom
 
 // A ring's atoms in walking order.
 using Ring = std::vector<std::size_t>;
@@ -216,13 +218,15 @@ std::size_t distinct(const std::vector<int>& labels) {
 }
 
 bool is_carbonyl_carbon(const Molecule& molecule, std::size_t atom) {
-    if (molecule.atoms()[atom].element != Element::C) {
+    // A neutral C=O: an oxonium C=[O+] (an ylide form PubChem sometimes lists) is not one.
+    if (molecule.atoms()[atom].element != Element::C || molecule.atoms()[atom].charge != 0) {
         return false;
     }
     const auto bonds = molecule.bonds_of(atom);
     return std::any_of(bonds.begin(), bonds.end(), [&](std::size_t bond) {
-        return order_of(molecule, bond) == BondOrder::Double &&
-               molecule.atoms()[molecule.neighbor(bond, atom)].element == Element::O;
+        const auto& other = molecule.atoms()[molecule.neighbor(bond, atom)];
+        return order_of(molecule, bond) == BondOrder::Double && other.element == Element::O &&
+               other.charge == 0;
     });
 }
 
@@ -232,11 +236,52 @@ bool is_heavy(const Molecule& molecule, std::size_t atom) {
     return molecule.atoms()[atom].element != Element::H;
 }
 
-// Starting invariants: element, isotope, charge, total hydrogens, heavy neighbours.
+// Bonds from a centre atom to terminal atoms that share a charge by resonance: terminal
+// heavy neighbours of one element, without hydrogens, each either double-bonded and
+// neutral or single-bonded with charge -1, at least one of each kind (the O of nitro,
+// carboxylate and sulfonate groups: [N+](=O)[O-], C(=O)[O-], S(=O)(=O)[O-]).
+std::set<std::size_t> delocalized_bonds(const Molecule& molecule) {
+    const auto& atoms = molecule.atoms();
+    std::set<std::size_t> result;
+    for (std::size_t centre = 0; centre < atoms.size(); ++centre) {
+        std::map<Element, std::vector<std::size_t>> by_element;
+        std::map<Element, std::pair<bool, bool>> kinds;  // {double neutral, single anion}
+        for (const auto bond : molecule.bonds_of(centre)) {
+            const auto end = molecule.neighbor(bond, centre);
+            const auto& atom = atoms[end];
+            if (atom.element == Element::H || molecule.hydrogen_count(end) != 0 ||
+                molecule.bonds_of(end).size() != 1) {
+                continue;
+            }
+            const auto order = order_of(molecule, bond);
+            const bool double_neutral = order == BondOrder::Double && atom.charge == 0;
+            const bool single_anion = order == BondOrder::Single && atom.charge == -1;
+            if (double_neutral || single_anion) {
+                by_element[atom.element].push_back(bond);
+                kinds[atom.element].first = kinds[atom.element].first || double_neutral;
+                kinds[atom.element].second = kinds[atom.element].second || single_anion;
+            }
+        }
+        for (const auto& [element, bonds] : by_element) {
+            if (kinds[element].first && kinds[element].second) {
+                result.insert(bonds.begin(), bonds.end());
+            }
+        }
+    }
+    return result;
+}
+
+// Starting invariants: element, isotope, charge, total hydrogens, heavy neighbours. Atoms
+// that share a charge by resonance (delocalized_bonds) get one charge invariant.
 // Hydrogen atoms enter only through hydrogen_count, never as neighbours, so a methyl
 // written with explicit [H] atoms matches one with implicit hydrogens.
 std::vector<int> initial_labels(const Molecule& molecule) {
     const auto& atoms = molecule.atoms();
+    std::vector<bool> shared(atoms.size(), false);
+    for (const auto bond : delocalized_bonds(molecule)) {
+        shared[molecule.bonds()[bond].first] = true;
+        shared[molecule.bonds()[bond].second] = true;
+    }
     std::vector<std::vector<int>> signatures(atoms.size());
     for (std::size_t i = 0; i < atoms.size(); ++i) {
         const auto bonds = molecule.bonds_of(i);
@@ -246,7 +291,7 @@ std::vector<int> initial_labels(const Molecule& molecule) {
         signatures[i] = {
             static_cast<int>(atoms[i].element),
             atoms[i].isotope,
-            atoms[i].charge,
+            shared[i] && molecule.bonds_of(i).size() == 1 ? kDelocalizedCharge : atoms[i].charge,
             molecule.hydrogen_count(i),
             static_cast<int>(heavy_degree),
         };
@@ -255,10 +300,12 @@ std::vector<int> initial_labels(const Molecule& molecule) {
 }
 
 // Refines `labels` on neighbour labels until the number of classes stops growing. Bonds
-// of aromatic rings count as one kind, so Kekule benzene stays symmetric.
+// of aromatic rings count as one kind, so Kekule benzene stays symmetric; so do the bonds
+// to resonance-shared terminal atoms, so the two O of a nitro group stay equivalent.
 std::vector<int> refine(const Molecule& molecule, const Aromaticity& aromaticity,
                         std::vector<int> labels) {
     const std::size_t n = molecule.atoms().size();
+    const auto delocalized = delocalized_bonds(molecule);
     std::vector<std::vector<int>> signatures(n);
     for (std::size_t round = 0; round <= n; ++round) {
         for (std::size_t i = 0; i < n; ++i) {
@@ -268,9 +315,12 @@ std::vector<int> refine(const Molecule& molecule, const Aromaticity& aromaticity
                 if (!is_heavy(molecule, other)) {
                     continue;
                 }
-                const int code = aromaticity.bonds.contains(bond)
-                                     ? kAromaticBondCode
-                                     : static_cast<int>(order_of(molecule, bond));
+                int code = static_cast<int>(order_of(molecule, bond));
+                if (aromaticity.bonds.contains(bond)) {
+                    code = kAromaticBondCode;
+                } else if (delocalized.contains(bond)) {
+                    code = kDelocalizedBondCode;
+                }
                 around.emplace_back(code, labels[other]);
             }
             std::sort(around.begin(), around.end());
@@ -475,16 +525,35 @@ bool is_stereocentre(const Molecule& molecule, std::size_t atom, const std::vect
     return false;
 }
 
-// The lower-index member of the identical pair on a prochiral sp3 carbon: one with two
-// identical groups and two other, different ones (Caabc, at most one H).
+// Whether `atom` can be a prochiral centre: an sp3 C or Si, or a quaternary N+, with four
+// groups (Caabc); or a P, S, Se or I centre with at least three groups (ArI(OAc)2, the two
+// O of a sulfone). Neutral amines are left out: nitrogen inversion averages their groups.
+bool can_be_prochiral(const Molecule& molecule, std::size_t atom, std::size_t groups) {
+    const auto& a = molecule.atoms()[atom];
+    switch (a.element) {
+        case Element::C:
+        case Element::Si:
+            return has_only_single_bonds(molecule, atom) && groups == 4;
+        case Element::N:
+            return a.charge == 1 && has_only_single_bonds(molecule, atom) && groups == 4;
+        case Element::P:
+        case Element::S:
+        case Element::Se:
+        case Element::I:
+            return groups >= 3;
+        default:
+            return false;
+    }
+}
+
+// The lower-index member of the identical pair on a prochiral centre (can_be_prochiral):
+// two identical groups and the others all different, at most one H.
 std::optional<std::size_t> prochiral_pair(const Molecule& molecule, std::size_t atom,
                                           const std::vector<int>& labels) {
-    if (molecule.atoms()[atom].element != Element::C || !has_only_single_bonds(molecule, atom)) {
-        return std::nullopt;
-    }
     const auto heavy = heavy_neighbors(molecule, atom);
     const int hydrogens = molecule.hydrogen_count(atom);
-    if (heavy.size() + static_cast<std::size_t>(hydrogens) != 4 || hydrogens > 1) {
+    const auto groups = heavy.size() + static_cast<std::size_t>(hydrogens);
+    if (!can_be_prochiral(molecule, atom, groups) || hydrogens > 1) {
         return std::nullopt;
     }
     std::map<int, std::vector<std::size_t>> by_label;
@@ -500,7 +569,7 @@ std::optional<std::size_t> prochiral_pair(const Molecule& molecule, std::size_t 
             pair = std::min(members[0], members[1]);
         }
     }
-    const bool rest_differ = by_label.size() + static_cast<std::size_t>(hydrogens) == 3;
+    const bool rest_differ = by_label.size() + static_cast<std::size_t>(hydrogens) == groups - 1;
     return rest_differ ? pair : std::nullopt;
 }
 
@@ -590,6 +659,15 @@ CarbonylSides carbonyl_sides(const Molecule& molecule, std::size_t carbon) {
     return sides;
 }
 
+// An OH, or an O- with a single heavy neighbour, which counts as the OH of its neutral
+// parent (carboxylate as acid, alkoxide as alcohol; user decision 2026-11-01).
+bool is_hydroxyl_like(const Molecule& molecule, std::size_t oxygen) {
+    if (molecule.hydrogen_count(oxygen) > 0) {
+        return true;
+    }
+    return molecule.atoms()[oxygen].charge == -1 && heavy_neighbors(molecule, oxygen).size() == 1;
+}
+
 // An O bonded by single bonds to `carbonyl` and to another carbon that is not a carbonyl C.
 bool ester_oxygen(const Molecule& molecule, std::size_t oxygen, std::size_t carbonyl) {
     if (molecule.hydrogen_count(oxygen) > 0) {
@@ -621,7 +699,7 @@ bool carbonyl_is(const Molecule& molecule, std::size_t carbon, Group group) {
     };
     switch (group) {
         case Group::CarboxylicAcid:
-            return o == 1 && n == 0 && molecule.hydrogen_count(sides.oxygens[0]) > 0;
+            return o == 1 && n == 0 && is_hydroxyl_like(molecule, sides.oxygens[0]);
         case Group::Aldehyde:
             return o == 0 && n == 0 && molecule.hydrogen_count(carbon) > 0;
         case Group::Ketone:
@@ -643,10 +721,12 @@ bool carbonyl_is(const Molecule& molecule, std::size_t carbon, Group group) {
     }
 }
 
-// The single heavy neighbour of a hydroxyl O, if the O is an OH with exactly one.
+// The single heavy neighbour of a hydroxyl O, if the O is an OH with exactly one. By the
+// neutral parent (user decision 2026-11-01), an O- with one heavy neighbour counts as the
+// OH it came from: carboxylate, alkoxide, phenoxide.
 std::optional<std::size_t> hydroxyl_carbon(const Molecule& molecule, std::size_t oxygen) {
     const auto heavy = heavy_neighbors(molecule, oxygen);
-    if (molecule.hydrogen_count(oxygen) == 0 || heavy.size() != 1 ||
+    if (!is_hydroxyl_like(molecule, oxygen) || heavy.size() != 1 ||
         !is_element(molecule, heavy[0], Element::C)) {
         return std::nullopt;
     }
@@ -854,23 +934,32 @@ int count_nitrogen_bond_group(const Molecule& molecule, const Aromaticity& aroma
         case Group::Hydroxylamine:
             return count_bonds(molecule, aromaticity, BondOrder::Single, Element::N, Element::O,
                                [&](std::size_t n, std::size_t o) {
-                                   return has_only_single_bonds(molecule, n) &&
+                                   // An N-oxide's N+-O- is not a hydroxylamine (user
+                                   // decision 2026-11-01).
+                                   const bool n_oxide = molecule.atoms()[n].charge == 1 &&
+                                                        molecule.atoms()[o].charge == -1;
+                                   return has_only_single_bonds(molecule, n) && !n_oxide &&
                                           !aromaticity.atoms[n] && !aromaticity.atoms[o];
                                });
         case Group::Imine:
             return count_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::N,
                                [&](std::size_t, std::size_t n) {
-                                   return !nitrogen_has_single(molecule, n, Element::O, false) &&
+                                   return molecule.atoms()[n].charge == 0 &&
+                                          !nitrogen_has_single(molecule, n, Element::O, false) &&
                                           !nitrogen_has_single(molecule, n, Element::N, false);
                                });
         case Group::Oxime:
             return count_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::N,
                                [&](std::size_t, std::size_t n) {
-                                   return nitrogen_has_single(molecule, n, Element::O, true);
+                                   return molecule.atoms()[n].charge == 0 &&
+                                          nitrogen_has_single(molecule, n, Element::O, true);
                                });
-        case Group::Nitrile:
+        case Group::Nitrile:  // not an isocyanide, [C-]#[N+]
             return count_bonds(molecule, aromaticity, BondOrder::Triple, Element::C, Element::N,
-                               always);
+                               [&](std::size_t c, std::size_t n) {
+                                   return molecule.atoms()[c].charge == 0 &&
+                                          molecule.atoms()[n].charge == 0;
+                               });
         case Group::Alkene:
             return count_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::C,
                                always);
