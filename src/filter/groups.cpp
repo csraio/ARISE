@@ -207,6 +207,15 @@ core::Error lab_error(std::size_t line, const std::string& message) {
     };
 }
 
+std::optional<nmr1d::CarbonType> type_named_ignoring_case(std::string_view name) {
+    for (const auto type : kAllTypes) {
+        if (lowercase(nmr1d::to_string(type)) == lowercase(name)) {
+            return type;
+        }
+    }
+    return std::nullopt;
+}
+
 // "C CH" (any case, spaces between); blank means every type.
 core::Result<nmr1d::CarbonTypeSet> parse_dept_list(std::size_t line, std::string_view text) {
     nmr1d::CarbonTypeSet types;
@@ -214,14 +223,12 @@ core::Result<nmr1d::CarbonTypeSet> parse_dept_list(std::size_t line, std::string
         if (token.empty()) {
             continue;
         }
-        const auto* const known = std::find_if(kAllTypes.begin(), kAllTypes.end(), [&](auto type) {
-            return lowercase(nmr1d::to_string(type)) == lowercase(token);
-        });
-        if (known == kAllTypes.end()) {
+        const auto type = type_named_ignoring_case(token);
+        if (!type) {
             return lab_error(line, "unknown DEPT type '" + std::string{token} +
                                        "' (use C, CH, CH2 or CH3, separated by spaces)");
         }
-        types = types | nmr1d::CarbonTypeSet{*known};
+        types = types | nmr1d::CarbonTypeSet{*type};
     }
     return types.empty() ? nmr1d::CarbonTypeSet::all() : types;
 }
