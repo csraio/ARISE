@@ -14,6 +14,8 @@ namespace {
 struct ElementInfo {
     Element element;
     std::string_view symbol;
+    int atomic_number;
+    int group;                    // periodic table group (1-18)
     std::array<int, 3> valences;  // normal valences, ascending; unused slots are 0
     bool organic_subset;          // may be written without brackets
 };
@@ -24,83 +26,113 @@ constexpr std::array kElements{
     ElementInfo{
         .element = Element::H,
         .symbol = "H",
+        .atomic_number = 1,
+        .group = 1,
         .valences = {1, 0, 0},
         .organic_subset = false,
     },
     ElementInfo{
         .element = Element::B,
         .symbol = "B",
+        .atomic_number = 5,
+        .group = 13,
         .valences = {3, 0, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::C,
         .symbol = "C",
+        .atomic_number = 6,
+        .group = 14,
         .valences = {4, 0, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::N,
         .symbol = "N",
+        .atomic_number = 7,
+        .group = 15,
         .valences = {3, 5, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::O,
         .symbol = "O",
+        .atomic_number = 8,
+        .group = 16,
         .valences = {2, 0, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::F,
         .symbol = "F",
+        .atomic_number = 9,
+        .group = 17,
         .valences = {1, 0, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::Si,
         .symbol = "Si",
+        .atomic_number = 14,
+        .group = 14,
         .valences = {4, 0, 0},
         .organic_subset = false,
     },
     ElementInfo{
         .element = Element::P,
         .symbol = "P",
+        .atomic_number = 15,
+        .group = 15,
         .valences = {3, 5, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::S,
         .symbol = "S",
+        .atomic_number = 16,
+        .group = 16,
         .valences = {2, 4, 6},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::Cl,
         .symbol = "Cl",
+        .atomic_number = 17,
+        .group = 17,
         .valences = {1, 0, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::Se,
         .symbol = "Se",
+        .atomic_number = 34,
+        .group = 16,
         .valences = {2, 4, 6},
         .organic_subset = false,
     },
     ElementInfo{
         .element = Element::Br,
         .symbol = "Br",
+        .atomic_number = 35,
+        .group = 17,
         .valences = {1, 0, 0},
         .organic_subset = true,
     },
     ElementInfo{
         .element = Element::I,
         .symbol = "I",
+        .atomic_number = 53,
+        .group = 17,
         .valences = {1, 3, 5},  // hypervalent iodine reagents (user decision 2026-11-01)
         .organic_subset = true,
     },
 };
 constexpr std::size_t kMaxRings = 100;
+constexpr int kLastSecondPeriod = 10;  // neon
+constexpr int kBoronGroup = 13;
+constexpr int kCarbonGroup = 14;
+constexpr int kNitrogenGroup = 15;
 
 const ElementInfo& info(Element element) noexcept {
     return kElements[static_cast<std::size_t>(element)];
@@ -115,16 +147,43 @@ std::optional<Element> find_element(std::string_view symbol) noexcept {
     return std::nullopt;
 }
 
-int max_valence(Element element) noexcept {
-    int highest = 0;
-    for (const int valence : info(element).valences) {
-        highest = valence > highest ? valence : highest;
+using Valences = std::array<int, 3>;
+
+// Normal valences of an atom. A charge changes how many bonds an atom makes: in groups
+// 15-17 a positive charge adds one and a negative one removes one (N+ 4, O- 1, S- 1/3/5,
+// I+ 2/4/6); boron gains one when negative and loses one when positive (B- 4, B+ 2);
+// carbon and silicon make three either way (C+ 3, C- 3). Second-period atoms cannot be
+// hypervalent, so only their lowest valence shifts (N+ 4, not 6).
+Valences normal_valences(const Atom& atom) noexcept {
+    const auto& element = info(atom.element);
+    if (atom.charge == 0) {
+        return element.valences;
     }
-    return highest;
+    Valences valences = element.atomic_number <= kLastSecondPeriod
+                            ? Valences{element.valences[0], 0, 0}
+                            : element.valences;
+    const int charge = +atom.charge;  // unary plus promotes the int8_t to int
+    int shift = 0;
+    if (element.group == kBoronGroup) {
+        shift = -charge;
+    } else if (element.group == kCarbonGroup) {
+        shift = -(charge < 0 ? -charge : charge);
+    } else if (element.group >= kNitrogenGroup) {
+        shift = charge;
+    } else {
+        return {0, 0, 0};  // charged hydrogen: not a closed-shell organic atom
+    }
+    for (auto& valence : valences) {
+        valence = valence != 0 && valence + shift > 0 ? valence + shift : 0;
+    }
+    return valences;
 }
 
-bool is_normal_valence(Element element, int valence) noexcept {
-    const auto& valences = info(element).valences;
+int max_valence(const Valences& valences) noexcept {
+    return *std::max_element(valences.begin(), valences.end());
+}
+
+bool is_normal_valence(const Valences& valences, int valence) noexcept {
     return std::any_of(valences.begin(), valences.end(),
                        [valence](int normal) { return normal != 0 && normal == valence; });
 }
@@ -653,7 +712,8 @@ namespace {
 
 // Neutral N at valence 5 with only single bonds: valence 5 needs a double bond (N(=O)=O).
 bool is_five_sigma_nitrogen(const Molecule& molecule, std::size_t atom) {
-    if (molecule.atoms()[atom].element != Element::N || molecule.valence(atom) != 5) {
+    const auto& a = molecule.atoms()[atom];
+    if (a.element != Element::N || a.charge != 0 || molecule.valence(atom) != 5) {
         return false;
     }
     const auto bonds = molecule.bonds_of(atom);
@@ -666,20 +726,22 @@ bool is_five_sigma_nitrogen(const Molecule& molecule, std::size_t atom) {
 
 std::optional<StructureIssue> structure_issue(const Molecule& molecule) {
     const auto atoms = molecule.atoms();
+    int net = 0;
     for (const auto& atom : atoms) {
-        if (atom.charge != 0) {
-            return StructureIssue::Charged;
-        }
+        net += atom.charge;
+    }
+    if (net != 0) {
+        return StructureIssue::Charged;
     }
     for (std::size_t i = 0; i < atoms.size(); ++i) {
         const int valence = molecule.valence(i);
-        if (!is_normal_valence(atoms[i].element, valence) &&
-            valence < max_valence(atoms[i].element)) {
+        const auto normal = normal_valences(atoms[i]);
+        if (!is_normal_valence(normal, valence) && valence < max_valence(normal)) {
             return StructureIssue::Radical;
         }
     }
     for (std::size_t i = 0; i < atoms.size(); ++i) {
-        if (molecule.valence(i) > max_valence(atoms[i].element) ||
+        if (molecule.valence(i) > max_valence(normal_valences(atoms[i])) ||
             is_five_sigma_nitrogen(molecule, i)) {
             return StructureIssue::UnusualValence;
         }

@@ -12,6 +12,7 @@
 #include "arise/io/carbon_csv.hpp"
 #include "arise/io/number.hpp"
 #include "arise/io/peak_csv.hpp"
+#include "arise/io/pubchem.hpp"
 #include "reference_fixtures.hpp"
 
 #include <gtest/gtest.h>
@@ -147,6 +148,7 @@ struct OracleEntry {
     std::vector<int> classes;
     std::vector<int> fragments;  // order of the file's "# fragments:" line
     bool aromaticity_differs = false;
+    std::vector<int> inchi_classes;  // standard InChI's equivalence classes; empty if none
 };
 
 // Oracle lines of `text` (pubchem_rdkit_oracle.tsv, or the accepted rows of
@@ -158,7 +160,7 @@ std::vector<OracleEntry> oracle(std::string_view text) {
             continue;
         }
         const auto fields = split(line, '\t');
-        if (fields.size() != 5) {
+        if (fields.size() != 6) {
             ADD_FAILURE() << "malformed oracle line: " << line;
             continue;
         }
@@ -168,6 +170,7 @@ std::vector<OracleEntry> oracle(std::string_view text) {
             .classes = integers(fields[2]),
             .fragments = integers(fields[3]),
             .aromaticity_differs = fields[4] == "1",
+            .inchi_classes = fields[5] == "-" ? std::vector<int>{} : integers(fields[5]),
         });
     }
     return entries;
@@ -187,7 +190,7 @@ std::string join(const std::vector<int>& values) {
 
 // Reports up to `shown` collected disagreements and fails if there are any.
 void expect_no_disagreements(const std::vector<std::string>& problems, std::size_t checked) {
-    constexpr std::size_t kShown = 40;
+    constexpr std::size_t kShown = 200;
     std::string listing;
     for (std::size_t i = 0; i < problems.size() && i < kShown; ++i) {
         listing += "\n  " + problems[i];
@@ -235,6 +238,30 @@ TEST(Reference, HydrogenCountsMatchRdkit) {
     expect_no_disagreements(problems, entries.size());
 }
 
+// Whether ARISE's symmetry classes agree with the references: every pair RDKit's ranks
+// call equivalent, ARISE does too; every pair ARISE calls equivalent, RDKit or standard
+// InChI does (InChI's equivalence layer also normalises resonance: the two O of a nitro
+// group or a carboxylate). Returns the first disagreeing pair, or empty.
+std::string symmetry_problem(const std::vector<int>& ours, const OracleEntry& entry) {
+    const auto& rdkit = entry.classes;
+    const auto& inchi = entry.inchi_classes;
+    if (ours.size() != rdkit.size() || (!inchi.empty() && inchi.size() != rdkit.size())) {
+        return "atom counts differ";
+    }
+    for (std::size_t a = 0; a < ours.size(); ++a) {
+        for (std::size_t b = a + 1; b < ours.size(); ++b) {
+            const bool by_rdkit = rdkit[a] == rdkit[b];
+            const bool by_inchi = !inchi.empty() && inchi[a] == inchi[b];
+            const bool by_arise = ours[a] == ours[b];
+            if (by_rdkit != by_arise && (by_rdkit || !by_inchi)) {
+                return "atoms " + std::to_string(a) + " and " + std::to_string(b) +
+                       (by_arise ? " merged by ARISE only" : " split by ARISE only");
+            }
+        }
+    }
+    return {};
+}
+
 TEST(Reference, SymmetryClassesMatchRdkit) {
     // Rings RDKit calls aromatic but ARISE's model does not (azulene, azoles with two
     // heteroatoms, quinoid tautomers, arynes) are excluded: ARISE reads their Kekule bonds
@@ -251,9 +278,10 @@ TEST(Reference, SymmetryClassesMatchRdkit) {
         for (const auto cls : arise::chem::symmetry_classes(molecule.value())) {
             ours.push_back(static_cast<int>(cls));
         }
-        if (ours != entry.classes) {
-            problems.push_back(std::string{entry.smiles} + ": ARISE " + join(ours) + " vs RDKit " +
-                               join(entry.classes));
+        const auto problem = symmetry_problem(ours, entry);
+        if (!problem.empty()) {
+            problems.push_back(std::string{entry.smiles} + ": " + problem + " (ARISE " +
+                               join(ours) + ", RDKit " + join(entry.classes) + ")");
         }
     }
     expect_no_disagreements(problems, checked);
@@ -873,6 +901,9 @@ std::string_view source_label(std::string_view source) {
     if (source == "spec") {
         return "chem tests";
     }
+    if (source == "valence") {
+        return "valence probes";
+    }
     return source == "pubchem" ? std::string_view{"PubChem"} : source;
 }
 
@@ -1005,7 +1036,7 @@ std::string spec_problem(const OracleEntry& entry, const std::vector<std::string
     for (const auto cls : arise::chem::symmetry_classes(molecule)) {
         classes.push_back(static_cast<int>(cls));
     }
-    if (classes != entry.classes) {
+    if (!symmetry_problem(classes, entry).empty()) {
         return "symmetry";
     }
     return fragment_differences(molecule, entry, names, known);
@@ -1102,6 +1133,114 @@ TEST(Provenance, HandWrittenSpecMoleculesMatchRdkit) {
     problems.insert(problems.end(), stale.begin(), stale.end());
     EXPECT_GT(checked, 150U);
     expect_no_disagreements(problems, checked);
+}
+
+// ---- PubChem cleaning of charge-separated neutral molecules ----------------------------
+
+// The recorded PubChem formula searches: formula -> CSV text.
+std::map<std::string, std::string> pubchem_searches() {
+    const auto all = arise::test::join_chunks(arise::test::kPubchemSearchesChunks);
+    std::map<std::string, std::string> searches;
+    std::string_view rest = all;
+    while (rest.starts_with("## ")) {
+        const auto eol = rest.find('\n');
+        const std::string formula{rest.substr(3, eol - 3)};
+        rest = rest.substr(eol + 1);
+        const auto next = rest.find("\n## ");
+        const auto end = next == std::string_view::npos ? rest.size() : next + 1;
+        searches[formula] = std::string{rest.substr(0, end)};
+        rest = rest.substr(end);
+    }
+    return searches;
+}
+
+// A removal reason in the oracle's words: duplicates are kept structures.
+std::string_view cleaning_verdict(arise::io::RemovalReason reason) {
+    if (reason == arise::io::RemovalReason::Mixture) {
+        return "mixture";
+    }
+    return reason == arise::io::RemovalReason::Charged ? "ion" : "kept";
+}
+
+// What ARISE's cleaning did with each CID of one search: "mixture", "ion", or "kept"
+// (a candidate or a duplicate of one).
+std::map<std::string, std::string> arise_cleaning(std::string_view csv) {
+    std::map<std::string, std::string> verdicts;
+    const auto imported = arise::io::import_pubchem_csv(csv);
+    EXPECT_TRUE(imported.ok());
+    if (!imported.ok()) {
+        return verdicts;
+    }
+    for (const auto& candidate : imported.value().candidates) {
+        verdicts[candidate.name.substr(4)] = "kept";  // name is "CID <n>"
+    }
+    for (const auto& removal : imported.value().removed) {
+        verdicts[std::to_string(removal.cid)] = std::string{cleaning_verdict(removal.reason)};
+    }
+    return verdicts;
+}
+
+TEST(Provenance, PubChemCleaningRemovesExactlyMixturesAndIons) {
+    // RDKit's verdict on every recorded record: charge-separated neutral molecules (nitro,
+    // N-oxides, zwitterions, isocyanides) are kept; only charges that do not cancel remove.
+    std::map<std::string, std::map<std::string, std::string>> ours;
+    for (const auto& [formula, csv] : pubchem_searches()) {
+        ours[formula] = arise_cleaning(csv);
+    }
+    std::vector<std::string> problems;
+    std::size_t checked = 0;
+    const auto oracle_text = arise::test::join_chunks(arise::test::kCleaningOracleChunks);
+    for (const auto line : data_lines(oracle_text)) {
+        const auto fields = split(line, '\t');
+        ASSERT_EQ(fields.size(), 3U) << line;
+        ++checked;
+        const auto& verdicts = ours[std::string{fields[0]}];
+        const auto found = verdicts.find(std::string{fields[1]});
+        const std::string arise = found == verdicts.end() ? "missing" : found->second;
+        if (fields[2] != "unreadable" && arise != fields[2]) {
+            problems.push_back(std::string{fields[0]} + " CID " + std::string{fields[1]} +
+                               ": RDKit " + std::string{fields[2]} + ", ARISE " + arise);
+        }
+    }
+    EXPECT_GT(checked, 8000U);
+    EXPECT_EQ(ours.size(), 7U);
+    expect_no_disagreements(problems, checked);
+}
+
+// What is wrong with one named compound (name, CID, formula, SMILES): empty if it is a
+// candidate of its formula's recorded search and ARISE accepts its structure.
+std::string named_compound_problem(const std::vector<std::string_view>& fields,
+                                   const std::map<std::string, std::string>& searches) {
+    if (fields.size() != 4) {
+        return "malformed";
+    }
+    const auto search = searches.find(std::string{fields[2]});
+    if (search == searches.end()) {
+        return "no recorded search for " + std::string{fields[2]};
+    }
+    const auto imported = arise::io::import_pubchem_csv(search->second);
+    if (!imported.ok()) {
+        return imported.error().message;
+    }
+    const auto& candidates = imported.value().candidates;
+    const auto name = "CID " + std::string{fields[1]};
+    if (std::none_of(candidates.begin(), candidates.end(),
+                     [&](const auto& c) { return c.name == name; })) {
+        return name + " is not a candidate";
+    }
+    return arise_accepts(fields[3]) ? std::string{} : "ARISE rejects the structure";
+}
+
+TEST(Provenance, NamedChargeSeparatedCompoundsAreCandidates) {
+    // Nitrobenzene, pyridine N-oxide, ... as PubChem writes them ([N+](=O)[O-]): kept by
+    // the cleaning of their formula's search, and accepted as structures.
+    const auto searches = pubchem_searches();
+    const auto named = arise::test::join_chunks(arise::test::kNamedCompoundsChunks);
+    const auto lines = data_lines(named);
+    ASSERT_GE(lines.size(), 4U);
+    for (const auto line : lines) {
+        EXPECT_EQ(named_compound_problem(split(line, '\t'), searches), "") << line;
+    }
 }
 
 }  // namespace

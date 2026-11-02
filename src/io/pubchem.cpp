@@ -76,19 +76,42 @@ core::Result<Record> parse_record(const detail::Line& line) {
     return Record{.cid = *cid, .smiles = std::string{field}, .line = line.number};
 }
 
-// '+' or '-' inside a bracket atom; outside brackets '-' is a single bond.
-bool has_charged_atom(std::string_view smiles) noexcept {
-    bool in_bracket = false;
-    for (const char c : smiles) {
-        if (c == '[') {
-            in_bracket = true;
-        } else if (c == ']') {
-            in_bracket = false;
-        } else if (in_bracket && (c == '+' || c == '-')) {
-            return true;
+// The charge written in one bracket atom's text (between '[' and ']'): '+', '++', '+2',
+// '-', ... ; zero if none. Outside brackets '-' is a single bond, never a charge.
+int bracket_charge(std::string_view atom) {
+    const auto at = atom.find_first_of("+-");
+    if (at == std::string_view::npos) {
+        return 0;
+    }
+    const int sign = atom[at] == '+' ? 1 : -1;
+    int magnitude = 0;
+    std::size_t i = at + 1;
+    while (i < atom.size() && atom[i] >= '0' && atom[i] <= '9') {
+        magnitude = (magnitude * 10) + (atom[i] - '0');
+        ++i;
+    }
+    if (i == at + 1) {  // no digits: '+', '++', ...
+        magnitude = 1;
+        while (i < atom.size() && atom[i] == atom[at]) {
+            ++magnitude;
+            ++i;
         }
     }
-    return false;
+    return sign * magnitude;
+}
+
+// The sum of the formal charges of all bracket atoms.
+int net_charge(std::string_view smiles) {
+    int total = 0;
+    for (auto open = smiles.find('['); open != std::string_view::npos;
+         open = smiles.find('[', open + 1)) {
+        const auto close = smiles.find(']', open);
+        if (close == std::string_view::npos) {
+            break;
+        }
+        total += bracket_charge(smiles.substr(open + 1, close - open - 1));
+    }
+    return total;
 }
 
 }  // namespace
@@ -149,7 +172,7 @@ core::Result<PubChemImport> import_pubchem_csv(std::string_view text) {
         std::optional<RemovalReason> reason;
         if (record.smiles.find('.') != std::string::npos) {
             reason = RemovalReason::Mixture;
-        } else if (has_charged_atom(record.smiles)) {
+        } else if (net_charge(record.smiles) != 0) {
             reason = RemovalReason::Charged;
         } else if (!seen.insert(record.smiles).second) {
             reason = RemovalReason::DuplicateConnectivity;

@@ -24,11 +24,19 @@ not written from memory. 3b's suggestion rules use those measured ranges.
 - formaldehyde counts as an aldehyde, formates as esters;
 - carbonates are not esters, ureas and carbamates are not amides; each is its own group.
 
+**Charge-separated neutral molecules (user, 2026-11-01).** PubChem writes nitro groups,
+N-oxides, zwitterions and isocyanides with formal charges that sum to zero; they are kept as
+candidates. Groups count them by their neutral parent: an O⁻ on carbon counts as the OH it
+came from (carboxylate as carboxylic acid, alkoxide as alcohol), an ammonium N as amine; an
+N-oxide's N⁺–O⁻ is neither amine nor hydroxylamine. A carbonyl needs a neutral C=O (an
+oxonium C=O⁺ or a carbonyl oxide C=O⁺–O⁻ is not one), a nitrile two neutral atoms, an imine
+or oxime a neutral N.
+
 ## Groups
 
 | # | Group | ARISE counts | Includes | Excludes | ChEBI class | Key atom for the NMR hallmark |
 |---|---|---|---|---|---|---|
-| 1 | Carboxylic acid | C(=O)OH | formic acid | carboxylates (charged) | CHEBI:33575 carboxylic acid | C=O carbon; OH proton |
+| 1 | Carboxylic acid | C(=O)OH, or C(=O)O⁻ in a net-neutral molecule (zwitterion) | formic acid, amino-acid zwitterions | carboxylate salts (ions are removed) | CHEBI:33575 carboxylic acid | C=O carbon; OH proton |
 | 2 | Aldehyde | C(=O)H, carbonyl C with no single bond to O/N/S | formaldehyde | formic acid, formates, formamides | CHEBI:17478 aldehyde | C=O carbon; CHO proton |
 | 3 | Ketone | C(=O) single-bonded to exactly two carbons | quinones, enones, aryl ketones | — | CHEBI:17087 ketone | C=O carbon |
 | 4 | Carboxylic ester | C(=O)–O–C (that C not a carbonyl C), acyl side H or C | lactones, formates | carbonates, carbamates, anhydrides | CHEBI:33308 carboxylic ester | C=O carbon; O–C carbon |
@@ -37,7 +45,7 @@ not written from memory. 3b's suggestion rules use those measured ranges.
 | 7 | Carboxamide | C(=O)–N, acyl side H or C | lactams, formamides | ureas, carbamates | CHEBI:37622 carboxamide | C=O carbon |
 | 8 | Carbamate ester | O–C(=O)–N, the O also bonded to carbon or to an oxime N | cyclic carbamates, O-carbamoyl oximes (aldicarb, methomyl; user decision 2026-10-31) | carbamic acids | CHEBI:23003 carbamate ester | C=O carbon |
 | 9 | Urea | N–C(=O)–N | cyclic ureas | — | CHEBI:47857 ureas | C=O carbon |
-| 10 | Alcohol | OH on a saturated (sp3) carbon | hemiacetal OH | enols, phenols, acids | CHEBI:30879 alcohol | C–OH carbon |
+| 10 | Alcohol | OH (or O⁻ in a net-neutral molecule) on a saturated (sp3) carbon | hemiacetal OH | enols, phenols, acids | CHEBI:30879 alcohol | C–OH carbon |
 | 11 | Enol | OH on a C=C carbon | — | phenols | CHEBI:33823 enol | C–OH carbon |
 | 12 | Phenol | OH on an all-carbon aromatic ring | naphthols | hydroxypyridines (→ 13) | CHEBI:33853 phenols | C–OH carbon |
 | 13 | Pyridone / hydroxypyridine | 2-/4-pyridone C=O in the ring, or OH on a pyridine carbon | both tautomers | — | CHEBI:38183 pyridone | C=O / C–OH carbon |
@@ -45,10 +53,10 @@ not written from memory. 3b's suggestion rules use those measured ranges.
 | 15 | Amine | N bonded only to C/H by single bonds, not to C=O/C=S/S(=O), not in an aromatic ring | anilines | amides, sulfonamides, hydrazines, hydroxylamines, pyrrole N | CHEBI:32952 amine | N–C carbons |
 | 16 | Sulfonamide | S(=O)2–N | — | — | CHEBI:35358 sulfonamide | — |
 | 17 | Hydrazine | N–N single bond (not in an aromatic ring) | hydrazides' N–N | — | CHEBI:24631 hydrazines | — |
-| 18 | Hydroxylamine | N–O single bond, N with only single bonds | — | oximes | CHEBI:24709 hydroxylamines | — |
-| 19 | Imine | C=N, N bonded to no O or N | — | oximes, hydrazones | CHEBI:24783 imine | C=N carbon |
+| 18 | Hydroxylamine | N–O single bond, N with only single bonds | — | oximes, N-oxides (N⁺–O⁻) | CHEBI:24709 hydroxylamines | — |
+| 19 | Imine | C=N, N neutral and bonded to no O or N | — | oximes, hydrazones, iminium ions | CHEBI:24783 imine | C=N carbon |
 | 20 | Oxime | C=N–OH | — | — | CHEBI:25750 oxime | C=N carbon |
-| 21 | Nitrile | C≡N | — | — | CHEBI:18379 nitrile | C≡N carbon |
+| 21 | Nitrile | C≡N, both atoms neutral | — | isocyanides ([C⁻]≡[N⁺]) | CHEBI:18379 nitrile | C≡N carbon |
 | 22 | Alkene | C=C outside aromatic rings | enones, enols' C=C | aromatic ring bonds | CHEBI:78840 olefinic compound | C=C carbons |
 | 23 | Benzene ring | aromatic all-carbon six-membered ring | each ring of naphthalene | pyridine | CHEBI:22712 benzenes | ring CH / C |
 | 24 | Pyridine ring | aromatic six-membered ring with one N | — | — | CHEBI:26421 pyridines | ring carbons |
@@ -77,19 +85,23 @@ not written from memory. 3b's suggestion rules use those measured ranges.
 
   | Class | n | Median (ppm) | 5–95% (ppm) |
   |---|---|---|---|
-  | oxime | 98 | 152.4 | 146.4–162.2 |
-  | oxime-ether | 160 | 156.4 | 147.6–166.8 |
+  | oxime | 123 | 152.2 | 144.7–161.9 |
+  | oxime-ether | 166 | 156.4 | 147.6–166.8 |
 
 ## Known differences from the external checks
 Every disagreement is listed by molecule in `tests/data/reference/known_differences.tsv`
 (hand-written; each row names its category). A listed row that starts agreeing fails the
-test, so the list cannot go stale. Categories (ChEBI release 256, 2,184 molecules; RDKit
-2025.09.3, 4,792 PubChem candidates; a test holds this table and these counts to the data
+test, so the list cannot go stale. Categories (ChEBI release 256, 2,321 molecules; RDKit
+2025.09.3, 5,513 PubChem candidates; a test holds this table and these counts to the data
 files):
 
 | Category | Rows | Source | Reason |
 |---|---|---|---|
-| formate | 51 | RDKit | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
+| formate | 55 | RDKit | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
+| carbonyl-oxide | 6 | RDKit | C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O |
+| alkoxide-as-alcohol | 5 | RDKit | an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H |
+| carbamic-acid | 3 | RDKit | fr_COO2 counts the C(=O)OH or C(=O)O-; a carboxylic acid needs carbon or H on the acyl side, and carbamic acids are excluded from row 8 |
+| oxonium-ylide | 2 | RDKit | an ylide/oxonium resonance artefact PubChem lists; ARISE needs a neutral C=O or OH where RDKit's pattern does not |
 | alpha-lactone | 1 | RDKit | fr_ester needs two distinct carbons around the ester O; ARISE counts it |
 | bridged-benzene | 1 | RDKit | a bridged six-ring outside RDKit's smallest-ring set; ARISE finds the benzene |
 | ynol | 1 | RDKit | OH on an alkyne carbon: neither alcohol nor enol |
@@ -112,15 +124,16 @@ files):
 | charged | 5 | chem tests | ARISE rejects charged species as candidates (molecule.hpp StructureIssue) |
 | unsupported-notation | 5 | chem tests | ARISE reads Kekulé SMILES: no quadruple bonds, aromatic ':' bonds, lowercase aromatic atoms, @TH-style stereo classes or atom maps (molecule.hpp) |
 | anhydride-not-ester | 2 | chem tests | fr_ester counts each C(=O)O of an anhydride; anhydrides are their own group (row 6) |
+| alkoxide-as-alcohol | 2 | chem tests | an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H |
 | carbamic-acid | 1 | chem tests | fr_COO2 counts the C(=O)OH; a carboxylic acid needs carbon or H on the acyl side, and carbamic acids are excluded from row 8 |
 | carbonic-monoester | 1 | chem tests | one O is OH; a carbonate ester needs carbon on both O |
+| carbonyl-oxide | 1 | chem tests | C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O |
 | conflicting-ring-bond | 1 | chem tests | the two ends of a ring closure give different bond orders, an error in OpenSMILES; RDKit takes one of them |
-| explicit-h-notation | 1 | chem tests | RDKit ranks atoms on the graph as written, so a CH3 with explicit H differs from one with implicit H; ARISE counts explicit [H] toward the neighbour (perception.hpp) |
 | formaldehyde | 1 | chem tests | fr_aldehyde needs carbon on the carbonyl; formaldehyde is an aldehyde (user decision) |
 | formate | 1 | chem tests | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
 | mixture | 1 | chem tests | ARISE reads one molecule; '.' is a ParseError (molecule.hpp) |
 | unsupported-element | 1 | chem tests | outside ARISE's elements (molecule.hpp) |
-| nitro-cleanup | 1 | chem tests | RDKit rewrites N(=O)=O as [N+](=O)[O-] while reading, so its two O differ as written; the two nitro O are equivalent by resonance |
+| hypervalent-charged | 68 | valence probes | RDKit's valence lists for charged Cl, Br, I, P and Si (3-6 bonds on Cl+/Br+, ate complexes of I-, P-, Si-, P+ with 6 bonds) differ from ARISE's charge-shifted normal valences |
 
 **Gaps these checks exposed** (no group today; add one if it matters): OH on a
 heteroaromatic carbon other than pyridine (hydroxyfurans, pyrazolols), ynols, oxime ethers,

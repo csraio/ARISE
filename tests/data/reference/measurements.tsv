@@ -8,5 +8,5 @@
 # (statistics.quantiles, inclusive method) of the C=N carbon shift (ppm).
 shift-range	13C	-45.8	292.5
 shift-range	1H	-8.72	18.43
-cn-shift	oxime	98	152.4	146.4	162.2
-cn-shift	oxime-ether	160	156.4	147.6	166.8
+cn-shift	oxime	123	152.2	144.7	161.9
+cn-shift	oxime-ether	166	156.4	147.6	166.8

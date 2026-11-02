@@ -196,6 +196,19 @@ TEST(Symmetry, HydrogenCountDistinguishesOtherwiseAlikeAtoms) {
     EXPECT_EQ(carbon_class_sizes("[CH2]CC"), (std::vector<int>{1, 1, 1}));
 }
 
+TEST(Symmetry, ResonanceSharedOxygensAreEquivalent) {
+    // The two O of a nitro group or a carboxylate share the charge by resonance.
+    const auto nitro = parse_ok("CC[N+](=O)[O-]");
+    const auto classes = arise::chem::symmetry_classes(nitro);
+    EXPECT_EQ(classes[3], classes[4]);
+    const auto glycine = parse_ok("C(C(=O)[O-])[NH3+]");
+    const auto zwitterion = arise::chem::symmetry_classes(glycine);
+    EXPECT_EQ(zwitterion[2], zwitterion[3]);
+    // ...but an acid's OH and C=O stay distinct.
+    const auto acid = arise::chem::symmetry_classes(parse_ok("CC(=O)O"));
+    EXPECT_NE(acid[2], acid[3]);
+}
+
 TEST(Symmetry, IsotopeLabelBreaksEquivalence) {
     // 13C-labelled methyl in propane: the two methyls are no longer equivalent.
     EXPECT_EQ(carbon_class_sizes("[13CH3]CC"), (std::vector<int>{1, 1, 1}));
@@ -291,6 +304,14 @@ TEST(NmrEquivalence, FastRotationKeepsEquivalence) {
     EXPECT_EQ(environments("CC(O)C1=CC=CC=C1"), (Range{6, 6}));  // 1-phenylethanol
     EXPECT_EQ(environments("CCOC(=O)C"), (Range{4, 4}));         // ethyl acetate
     EXPECT_EQ(environments("CC1=CC=C(C)C=C1"), (Range{3, 3}));   // p-xylene
+}
+
+TEST(NmrEquivalence, ProchiralCentresBeyondCarbonMaySplit) {
+    // A quaternary N+ does not invert, so with a stereocentre elsewhere its two methyls
+    // are diastereotopic (the "most" partition splits them): 6..7 carbon environments.
+    EXPECT_EQ(environments("C[N+](C)(CC)CC([O-])C"), (Range{6, 7}));
+    // A neutral amine inverts fast, so its two methyls stay equivalent.
+    EXPECT_EQ(environments("CN(C)CC(O)C"), (Range{4, 4}));
 }
 
 TEST(NmrEquivalence, NeverFewerClassesThanTopology) {
@@ -508,6 +529,21 @@ TEST(Perception, EveryValidC4H8O2CandidateHasFourCarbonsInItsClasses) {
         }
         EXPECT_EQ(carbons, 4) << candidate.smiles;
     }
+}
+
+TEST(Groups, ChargeSeparatedFormsCountByTheirNeutralParent) {
+    // User decision 2026-11-01: carboxylate as acid, ammonium as amine, alkoxide as
+    // alcohol; an N-oxide is neither amine nor hydroxylamine; an isocyanide is no nitrile;
+    // a carbonyl oxide is no ketone.
+    EXPECT_EQ(groups("C(C(=O)[O-])[NH3+]", Group::CarboxylicAcid), 1);  // glycine zwitterion
+    EXPECT_EQ(groups("C(C(=O)[O-])[NH3+]", Group::Amine), 1);
+    EXPECT_EQ(groups("C(C[NH3+])C[O-]", Group::Alcohol), 1);
+    EXPECT_EQ(groups("C[N+](C)(C)[O-]", Group::Amine), 0);  // trimethylamine N-oxide
+    EXPECT_EQ(groups("C[N+](C)(C)[O-]", Group::Hydroxylamine), 0);
+    EXPECT_EQ(groups("[C-]#[N+]C", Group::Nitrile), 0);  // methyl isocyanide
+    EXPECT_EQ(groups("CC#N", Group::Nitrile), 1);
+    EXPECT_EQ(groups("CCC(=[O+][O-])C", Group::Ketone), 0);             // carbonyl oxide
+    EXPECT_EQ(groups("C1=CC=[N+](C=C1)[O-]", Group::PyridineRing), 1);  // pyridine N-oxide
 }
 
 TEST(Groups, NamesAreReadable) {

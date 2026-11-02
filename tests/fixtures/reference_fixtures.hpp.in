@@ -64,6 +64,22 @@ inline constexpr std::array<std::string_view, @ARISE_SPEC_SOURCES_CHUNK_COUNT@>
     kSpecSourcesChunks{
 @ARISE_SPEC_SOURCES_CHUNKS@};
 
+// RDKit's cleaning verdict (mixture / ion / kept) on every recorded PubChem record.
+inline constexpr std::array<std::string_view, @ARISE_CLEANING_ORACLE_CHUNK_COUNT@>
+    kCleaningOracleChunks{
+@ARISE_CLEANING_ORACLE_CHUNKS@};
+
+// Charge-separated neutral compounds looked up by name on PubChem.
+inline constexpr std::array<std::string_view, @ARISE_NAMED_COMPOUNDS_CHUNK_COUNT@>
+    kNamedCompoundsChunks{
+@ARISE_NAMED_COMPOUNDS_CHUNKS@};
+
+// The recorded PubChem formula searches (tests/data/pubchem_*.csv; PubChem data is in the
+// public domain), each preceded by a "## <formula>" line.
+inline constexpr std::array<std::string_view, @ARISE_PUBCHEM_SEARCHES_CHUNK_COUNT@>
+    kPubchemSearchesChunks{
+@ARISE_PUBCHEM_SEARCHES_CHUNKS@};
+
 template <std::size_t N>
 std::string join_chunks(const std::array<std::string_view, N>& chunks) {
     std::string text;

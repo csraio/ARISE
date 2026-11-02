@@ -49,16 +49,17 @@ TEST(PubChem, FormulaSearchUrlUsesHillNotation) {
 }
 
 // ---- A real response: C4H8O2, recorded 2026-10-31 ---------------------------------
-// Expected counts were computed independently with grep/sort on the same file:
-// 494 rows; 63 mixtures; 23 charged (of the rest); 408 left, 131 distinct.
+// 494 rows; 63 mixtures; 10 ions (charges not summing to zero) of the rest; 421 left,
+// 144 distinct. Every record's mixture/ion/kept verdict is checked against RDKit by
+// Provenance.PubChemCleaningRemovesExactlyMixturesAndIons.
 
 TEST(PubChem, RecordedC4H8O2ResponseIsCleanedAsExpected) {
     const auto imported = import_ok(arise::test::kPubChemC4H8O2);
     EXPECT_EQ(imported.rows, 494U);
     EXPECT_EQ(imported.removed_count(RemovalReason::Mixture), 63U);
-    EXPECT_EQ(imported.removed_count(RemovalReason::Charged), 23U);
-    EXPECT_EQ(imported.removed_count(RemovalReason::DuplicateConnectivity), 408U - 131U);
-    EXPECT_EQ(imported.candidates.size(), 131U);
+    EXPECT_EQ(imported.removed_count(RemovalReason::Charged), 10U);
+    EXPECT_EQ(imported.removed_count(RemovalReason::DuplicateConnectivity), 421U - 144U);
+    EXPECT_EQ(imported.candidates.size(), 144U);
     EXPECT_EQ(imported.candidates.size() + imported.removed.size(), imported.rows);
 }
 
@@ -104,15 +105,39 @@ TEST(PubChem, DuplicateKeepsTheLowestCidWhateverTheRowOrder) {
     EXPECT_EQ(imported.removed, expected);
 }
 
-TEST(PubChem, RemovesMixturesAndChargedSpecies) {
+TEST(PubChem, RemovesMixturesAndIons) {
     const auto imported = import_ok(std::string{kHeader} +
                                     "1,\"CC(C)O.[C-]#[O+]\"\n"  // mixture, also charged
-                                    "2,\"C(CC[O-])C[O-]\"\n"    // charged
-                                    "3,\"C[NH3+]\"\n"           // charged
+                                    "2,\"C(CC[O-])C[O-]\"\n"    // net charge -2
+                                    "3,\"C[NH3+]\"\n"           // net charge +1
                                     "4,\"CCO\"\n");
     ASSERT_EQ(imported.candidates.size(), 1U);
     EXPECT_EQ(imported.candidates[0].smiles, "CCO");
     EXPECT_EQ(imported.removed_count(RemovalReason::Mixture), 1U);  // mixture wins
+    EXPECT_EQ(imported.removed_count(RemovalReason::Charged), 2U);
+}
+
+TEST(PubChem, KeepsChargeSeparatedNeutralMolecules) {
+    // PubChem writes nitro groups, N-oxides, zwitterions and isocyanides with formal
+    // charges that sum to zero; they are real neutral compounds (user decision 2026-11-01).
+    const auto imported = import_ok(std::string{kHeader} +
+                                    "1,\"CC[N+](=O)[O-]\"\n"
+                                    "2,\"C1=CC=[N+](C=C1)[O-]\"\n"
+                                    "3,\"C(C(=O)[O-])[NH3+]\"\n"
+                                    "4,\"[C-]#[N+]C\"\n");
+    EXPECT_EQ(imported.candidates.size(), 4U);
+    EXPECT_TRUE(imported.removed.empty());
+}
+
+TEST(PubChem, ChargesAreSummedInEveryNotation) {
+    // '++' and '+2' are both +2; one -1 per '-'.
+    const auto imported = import_ok(std::string{kHeader} +
+                                    "1,\"[CH2++]C([O-])[O-]\"\n"     // 0: kept
+                                    "2,\"[CH2+2]C([O-])[O-]\"\n"     // 0: kept
+                                    "3,\"[CH2+2]CC[O-]\"\n"          // +1: ion
+                                    "4,\"[O--]C[CH2+]\"\n"           // -1: ion
+                                    "5,\"[O-2]C[CH2+][CH2+]C\"\n");  // 0: kept
+    EXPECT_EQ(imported.candidates.size(), 3U);
     EXPECT_EQ(imported.removed_count(RemovalReason::Charged), 2U);
 }
 
