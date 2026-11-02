@@ -314,8 +314,7 @@ TEST(ConfirmedGroups, GroupConfirmedBothPresentAndAbsentIsAnError) {
         {.present = {Group::CarboxylicEster}, .absent = {Group::Ketone, Group::CarboxylicEster}});
     ASSERT_FALSE(result.ok());
     EXPECT_EQ(result.error().code, ErrorCode::InvalidArgument);
-    EXPECT_NE(result.error().message.find("carboxylic ester"), std::string::npos)
-        << result.error().message;
+    EXPECT_EQ(result.error().message, "carboxylic ester is confirmed both present and absent");
 }
 
 TEST(Tier, Names) {
