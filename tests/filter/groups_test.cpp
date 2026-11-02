@@ -28,6 +28,7 @@ using arise::filter::GroupSuggestion;
 using arise::filter::HallmarkWindow;
 using arise::filter::parse_hallmark_windows;
 using arise::filter::suggest_groups;
+using arise::filter::SuggestOptions;
 using arise::filter::Tier;
 using arise::nmr1d::CarbonAssignment;
 using arise::nmr1d::CarbonType;
@@ -348,6 +349,64 @@ TEST(SuggestGroups, UnknownDeptTypeMatchesOnShiftAlone) {
     };
     EXPECT_EQ(suggested(suggest_groups(std::vector{peak(200.0)}, windows)),
               (std::vector{Group::Aldehyde, Group::Ketone}));
+}
+
+TEST(SuggestGroups, DeptNarrowsSuggestionsByDefault) {
+    EXPECT_TRUE(SuggestOptions{}.use_dept);
+    const std::vector windows{
+        window(Group::Aldehyde, "C=O carbon", {CarbonType::CH}, 190, 205),
+        window(Group::Ketone, "C=O carbon", {CarbonType::C}, 190, 220),
+    };
+    const std::vector peaks{peak(200.0, {CarbonType::CH}), peak(210.0, {CarbonType::CH2})};
+    EXPECT_EQ(suggest_groups(peaks, windows), suggest_groups(peaks, windows, SuggestOptions{}));
+    EXPECT_EQ(suggest_groups(peaks, windows),
+              suggest_groups(peaks, windows, SuggestOptions{.use_dept = true}));
+    EXPECT_EQ(suggested(suggest_groups(peaks, windows)), std::vector{Group::Aldehyde});
+}
+
+std::vector<HallmarkWindow> aldehyde_and_ketone() {
+    return {
+        window(Group::Aldehyde, "C=O carbon", {CarbonType::CH}, 190, 205),
+        window(Group::Ketone, "C=O carbon", {CarbonType::C}, 190, 220),
+    };
+}
+
+constexpr SuggestOptions kShiftOnly{.use_dept = false};
+
+TEST(SuggestGroups, WithDeptOffEveryPeakMatchesOnShiftAlone) {
+    // Types that DEPT would rule out, or no possible type at all, no longer matter.
+    const auto windows = aldehyde_and_ketone();
+    for (const auto types : {
+             CarbonTypeSet{CarbonType::CH},
+             CarbonTypeSet{CarbonType::C},
+             CarbonTypeSet{CarbonType::CH2},
+             CarbonTypeSet{},
+         }) {
+        EXPECT_EQ(suggested(suggest_groups(std::vector{peak(200.0, types)}, windows, kShiftOnly)),
+                  (std::vector{Group::Aldehyde, Group::Ketone}));
+    }
+}
+
+TEST(SuggestGroups, WithDeptOffWindowBoundsStillApply) {
+    const auto windows = aldehyde_and_ketone();
+    EXPECT_EQ(
+        suggested(suggest_groups(std::vector{peak(220.0, {CarbonType::CH2})}, windows, kShiftOnly)),
+        std::vector{Group::Ketone});
+    EXPECT_TRUE(
+        suggest_groups(std::vector{peak(220.01, {CarbonType::C})}, windows, kShiftOnly).empty());
+    EXPECT_TRUE(
+        suggest_groups(std::vector{peak(189.99, {CarbonType::C})}, windows, kShiftOnly).empty());
+}
+
+TEST(SuggestGroups, WithDeptOffEvidenceStillNamesThePeakAndWindow) {
+    const auto windows = aldehyde_and_ketone();
+    const auto suggestions = suggest_groups(std::vector{peak(30.0), peak(195.0, {CarbonType::CH3})},
+                                            windows, kShiftOnly);
+    ASSERT_EQ(suggestions.size(), 2U);
+    ASSERT_EQ(suggestions[1].evidence.size(), 1U);
+    EXPECT_EQ(suggestions[1].evidence[0].peak, 1U);
+    EXPECT_EQ(suggestions[1].evidence[0].shift, Ppm{195.0});
+    EXPECT_EQ(suggestions[1].evidence[0].window, windows[1]);
 }
 
 TEST(SuggestGroups, OverlappingWindowsSuggestEveryGroupInGroupOrder) {

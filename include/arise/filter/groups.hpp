@@ -107,13 +107,24 @@ struct GroupSuggestion {
     friend bool operator==(const GroupSuggestion&, const GroupSuggestion&) = default;
 };
 
+/// The chemist's choices for suggest_groups.
+struct SuggestOptions {
+    /// Whether a peak's DEPT type must share a type with the window's (on by default). Off,
+    /// every peak matches on shift alone: for spectra whose DEPT is doubtful, and for groups
+    /// whose measured types miss a case (nmrshiftdb2 has no formic acid, methanol,
+    /// formaldehyde or HCN).
+    bool use_dept = true;
+};
+
 /// The groups the observed 13C peaks suggest, in chem::kAllGroups order: a group is
-/// suggested when any peak lies in any of its windows (bounds inclusive) and the peak's
-/// possible DEPT types share a type with the window's. Suggestions are never
-/// eliminations: overlapping windows suggest every group they belong to, and the chemist
-/// decides. A peak with unknown DEPT type (all types possible) matches on shift alone.
+/// suggested when any peak lies in any of its windows (bounds inclusive) and, when
+/// `options.use_dept` is on, the peak's possible DEPT types share a type with the window's.
+/// Suggestions are never eliminations: overlapping windows suggest every group they belong
+/// to, and the chemist decides. A peak with unknown DEPT type (all types possible) matches
+/// on shift alone.
 [[nodiscard]] std::vector<GroupSuggestion> suggest_groups(
-    std::span<const nmr1d::CarbonAssignment> peaks, std::span<const HallmarkWindow> windows);
+    std::span<const nmr1d::CarbonAssignment> peaks, std::span<const HallmarkWindow> windows,
+    SuggestOptions options = {});
 
 /// Groups the chemist has confirmed as present or ruled out.
 struct ConfirmedGroups {
