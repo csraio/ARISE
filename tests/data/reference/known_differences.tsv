@@ -227,3 +227,4 @@ valence	[SiH3-](CC[N+](C)(C)C)(C)	accept	hypervalent-charged: RDKit's valence li
 valence	[SiH4-](CC[N+](C)(C)C)	accept	hypervalent-charged: RDKit's valence lists for charged Cl, Br, I, P and Si (3-6 bonds on Cl+/Br+, ate complexes of I-, P-, Si-, P+ with 6 bonds) differ from ARISE's charge-shifted normal valences
 spec	C(C[NH3+])C[O-]	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
 spec	CCC(=[O+][O-])C	fr_ketone	carbonyl-oxide: C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O
+spec	C[N+](C)(CC)CC([O-])C	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H

@@ -124,7 +124,7 @@ files):
 | charged | 5 | chem tests | ARISE rejects charged species as candidates (molecule.hpp StructureIssue) |
 | unsupported-notation | 5 | chem tests | ARISE reads Kekulé SMILES: no quadruple bonds, aromatic ':' bonds, lowercase aromatic atoms, @TH-style stereo classes or atom maps (molecule.hpp) |
 | anhydride-not-ester | 2 | chem tests | fr_ester counts each C(=O)O of an anhydride; anhydrides are their own group (row 6) |
-| alkoxide-as-alcohol | 1 | chem tests | an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H |
+| alkoxide-as-alcohol | 2 | chem tests | an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H |
 | carbamic-acid | 1 | chem tests | fr_COO2 counts the C(=O)OH; a carboxylic acid needs carbon or H on the acyl side, and carbamic acids are excluded from row 8 |
 | carbonic-monoester | 1 | chem tests | one O is OH; a carbonate ester needs carbon on both O |
 | carbonyl-oxide | 1 | chem tests | C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O |

@@ -306,6 +306,14 @@ TEST(NmrEquivalence, FastRotationKeepsEquivalence) {
     EXPECT_EQ(environments("CC1=CC=C(C)C=C1"), (Range{3, 3}));   // p-xylene
 }
 
+TEST(NmrEquivalence, ProchiralCentresBeyondCarbonMaySplit) {
+    // A quaternary N+ does not invert, so with a stereocentre elsewhere its two methyls
+    // are diastereotopic (the "most" partition splits them): 6..7 carbon environments.
+    EXPECT_EQ(environments("C[N+](C)(CC)CC([O-])C"), (Range{6, 7}));
+    // A neutral amine inverts fast, so its two methyls stay equivalent.
+    EXPECT_EQ(environments("CN(C)CC(O)C"), (Range{4, 4}));
+}
+
 TEST(NmrEquivalence, NeverFewerClassesThanTopology) {
     for (const auto* smiles : {"CC(C)C(N)C(=O)O", "CN(C)C=O", "OCC(O)C(O)C(O)C(O)CO"}) {
         const auto range = environments(smiles);
