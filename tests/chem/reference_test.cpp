@@ -1041,8 +1041,10 @@ std::string spec_line_problem(std::string_view line, const std::vector<std::stri
 // helpers as SPEC_HELPERS in the builder).
 std::set<std::string> spec_literals() {
     static constexpr std::array kHelpers{
-        "parse_smiles(\"", "parse_ok(\"",           "parse(\"",      "expect_error(\"", "groups(\"",
-        "environments(\"", "carbon_class_sizes(\"", "topological(\""};
+        "parse_smiles(\"",       "parse_ok(\"",    "parse(\"",
+        "expect_error(\"",       "groups(\"",      "environments(\"",
+        "carbon_class_sizes(\"", "topological(\"",
+    };
     const auto sources = arise::test::join_chunks(arise::test::kSpecSourcesChunks);
     std::set<std::string> literals;
     for (const std::string_view helper : kHelpers) {
