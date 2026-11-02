@@ -37,6 +37,14 @@ using arise::chem::Group;
 
 constexpr double kExpectedRate = 0.98;
 
+// About 30 s natively, far slower under the wasm checks; the logic is portable and runs in
+// every native configuration. A run-time skip keeps the code compiled under wasm too.
+#ifdef __EMSCRIPTEN__
+constexpr bool kSkipSlowChecks = true;
+#else
+constexpr bool kSkipSlowChecks = false;
+#endif
+
 double pass_mark(std::size_t n) {
     return kExpectedRate -
            (3.0 * std::sqrt(kExpectedRate * (1.0 - kExpectedRate) / static_cast<double>(n)));
@@ -200,9 +208,9 @@ void expect_rates(const std::map<Key, Tally>& tallies, const std::string& what) 
 }
 
 TEST(GroupSuggestionHoldout, HallmarkCarbonsFallInTheirWindowsAtTheMeasuredRate) {
-#ifdef __EMSCRIPTEN__
-    GTEST_SKIP() << "about 30 s natively, far slower under wasm checks; checked natively";
-#else
+    if (kSkipSlowChecks) {
+        GTEST_SKIP() << "about 30 s natively, far slower under wasm checks; checked natively";
+    }
     ASSERT_GT(holdout().records, 15000U);
     // Every measured hallmark has hold-out carbons, and every hold-out hallmark a window.
     std::set<std::pair<Group, std::string>> measured;
@@ -215,16 +223,14 @@ TEST(GroupSuggestionHoldout, HallmarkCarbonsFallInTheirWindowsAtTheMeasuredRate)
     }
     EXPECT_EQ(held_out, measured);
     expect_rates(holdout().carbons, "carbon");
-#endif
 }
 
 TEST(GroupSuggestionHoldout, MoleculesWithAGroupHaveItSuggestedAtTheMeasuredRate) {
-#ifdef __EMSCRIPTEN__
-    GTEST_SKIP() << "about 30 s natively, far slower under wasm checks; checked natively";
-#else
+    if (kSkipSlowChecks) {
+        GTEST_SKIP() << "about 30 s natively, far slower under wasm checks; checked natively";
+    }
     EXPECT_GT(holdout().molecules.size(), 20U);
     expect_rates(holdout().molecules, "molecule");
-#endif
 }
 
 }  // namespace
