@@ -61,6 +61,13 @@ public:
         both.bits_ = static_cast<std::uint8_t>(a.bits_ & b.bits_);
         return both;
     }
+    /// Union: the types allowed by either.
+    [[nodiscard]] friend constexpr CarbonTypeSet operator|(CarbonTypeSet a,
+                                                           CarbonTypeSet b) noexcept {
+        CarbonTypeSet either;
+        either.bits_ = static_cast<std::uint8_t>(a.bits_ | b.bits_);
+        return either;
+    }
     friend constexpr bool operator==(CarbonTypeSet, CarbonTypeSet) noexcept = default;
 
 private:

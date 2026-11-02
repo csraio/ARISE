@@ -70,16 +70,36 @@ std::string fixed1(double value) {
            std::to_string(magnitude % 10);
 }
 
+// The shifts of one hallmark and the DEPT types of the carbons carrying them.
+struct Values {
+    std::vector<double> shifts;
+    nmr1d::CarbonTypeSet types;
+};
+
 // Keyed by (group index, hallmark name with its carbon type where split).
-using Values = std::map<std::pair<std::size_t, std::string>, std::vector<double>>;
+using ValuesByHallmark = std::map<std::pair<std::size_t, std::string>, Values>;
 
 // Adds one record's key-atom shifts to `values`.
-void collect(const ShiftRecord& record, const chem::Molecule& molecule, Values& values) {
+void collect(const ShiftRecord& record, const chem::Molecule& molecule, ValuesByHallmark& values) {
+    for (const auto& key : key_carbons(molecule)) {
+        const auto& shift = record.shifts[key.atom];
+        const auto type = chem::carbon_type(molecule, key.atom);
+        if (shift && type) {
+            auto& entry = values[{key.group_index, key.hallmark}];
+            entry.shifts.push_back(*shift);
+            entry.types = entry.types | nmr1d::CarbonTypeSet{*type};
+        }
+    }
+}
+
+}  // namespace
+
+std::vector<KeyCarbon> key_carbons(const chem::Molecule& molecule) {
+    std::vector<KeyCarbon> keys;
     for (std::size_t g = 0; g < chem::kAllGroups.size(); ++g) {
-        const auto group = chem::kAllGroups[g];
-        const auto names = chem::hallmarks(group);
+        const auto names = chem::hallmarks(chem::kAllGroups[g]);
         std::vector<std::set<std::size_t>> atoms(names.size());
-        for (const auto& occurrence : chem::find_group(molecule, group)) {
+        for (const auto& occurrence : chem::find_group(molecule, chem::kAllGroups[g])) {
             for (std::size_t h = 0; h < names.size(); ++h) {
                 atoms[h].insert(occurrence.key_atoms[h].begin(), occurrence.key_atoms[h].end());
             }
@@ -90,15 +110,12 @@ void collect(const ShiftRecord& record, const chem::Molecule& molecule, Values& 
                 if (split_by_carbon_type(name)) {
                     name += is_sp3(molecule, atom) ? " (sp3)" : " (unsaturated)";
                 }
-                if (const auto& shift = record.shifts[atom]) {
-                    values[{g, name}].push_back(*shift);
-                }
+                keys.push_back({.group_index = g, .hallmark = std::move(name), .atom = atom});
             }
         }
     }
+    return keys;
 }
-
-}  // namespace
 
 std::vector<ShiftRecord> parse_shift_extract(std::string_view text) {
     std::vector<ShiftRecord> records;
@@ -124,7 +141,7 @@ std::vector<ShiftRecord> parse_shift_extract(std::string_view text) {
 }
 
 std::vector<HallmarkShifts> measure_group_shifts(const std::vector<ShiftRecord>& records) {
-    Values values;
+    ValuesByHallmark values;
     for (const auto& record : records) {
         if (record.id % 2 != 0) {
             continue;  // hold-out half
@@ -135,12 +152,14 @@ std::vector<HallmarkShifts> measure_group_shifts(const std::vector<ShiftRecord>&
         }
     }
     std::vector<HallmarkShifts> result;
-    for (auto& [key, shifts] : values) {
+    for (auto& [key, entry] : values) {
+        auto& shifts = entry.shifts;
         std::sort(shifts.begin(), shifts.end());
         const auto group = chem::kAllGroups[key.first];
         result.push_back(HallmarkShifts{
             .group = group,
             .hallmark = key.second,
+            .types = entry.types,
             .n = shifts.size(),
             .min = shifts.front(),
             .p1 = percentile(shifts, 1),
@@ -160,15 +179,17 @@ std::string_view group_shifts_header() {
            "# under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt).\n"
            "# Records with even IDs; each group's key atoms from ARISE's chem::find_group.\n"
            "# O-C and N-C hallmarks are split into sp3 and unsaturated carbons.\n"
-           "# Columns: group, hallmark, n carbons, min, 1st, 5th percentile, median, 95th,\n"
-           "# 99th percentile, max (ppm; percentiles as Python statistics.quantiles(n=100),\n"
-           "# inclusive). Suggestion windows use 1st-99th (user decision 2026-11-01).\n";
+           "# Columns: group, hallmark, DEPT types of its carbons, n carbons, min, 1st, 5th\n"
+           "# percentile, median, 95th, 99th percentile, max (ppm; percentiles as Python\n"
+           "# statistics.quantiles(n=100), inclusive). Suggestion windows use 1st-99th (user\n"
+           "# decision 2026-11-01).\n";
 }
 
 std::string to_tsv(const std::vector<HallmarkShifts>& measurements) {
     std::string text;
     for (const auto& m : measurements) {
         text.append(chem::to_string(m.group)).append("\t").append(m.hallmark).append("\t");
+        text.append(nmr1d::to_string(m.types)).append("\t");
         text.append(std::to_string(m.n));
         for (const double value : {m.min, m.p1, m.p5, m.median, m.p95, m.p99, m.max}) {
             text.append("\t").append(fixed1(value));

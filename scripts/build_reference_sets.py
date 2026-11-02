@@ -552,9 +552,10 @@ def named_compounds():
 
 # ---- hand-written spec cases and valences ---------------------------------------------
 
-# Test helpers in tests/chem/*_test.cpp whose first argument is a SMILES literal.
+# Test helpers in the hand-written tests (SPEC_DIRS) whose first argument is a SMILES literal.
 SPEC_HELPERS = ("parse_smiles", "parse_ok", "parse", "expect_error", "groups", "environments",
-                "carbon_class_sizes", "topological")
+                "carbon_class_sizes", "topological", "verdict")
+SPEC_DIRS = ("tests/chem", "tests/filter")
 
 
 def spec_smiles():
@@ -562,7 +563,7 @@ def spec_smiles():
     found by pattern so no list is typed by hand."""
     pattern = re.compile(r"\b(?:" + "|".join(SPEC_HELPERS) + r')\("((?:[^"\\]|\\.)*)"')
     found = set()
-    for path in sorted((REPO / "tests" / "chem").glob("*_test.cpp")):
+    for path in sorted(p for d in SPEC_DIRS for p in (REPO / d).glob("*_test.cpp")):
         for match in pattern.finditer(path.read_text(encoding="utf-8")):
             found.add(match.group(1).encode().decode("unicode_escape"))
     return sorted(found)
@@ -841,11 +842,12 @@ def main():
         + measure_nmrshiftdb(args.nmrshiftdb),
         [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
     (OUT / "spec_rdkit_oracle.tsv").write_text(header(
-        ["# RDKit's reading of every SMILES literal in the hand-written chem tests",
-         "# (tests/chem/*_test.cpp, found by pattern; SPEC_HELPERS in the builder).",
+        ["# RDKit's reading of every SMILES literal in the hand-written tests",
+         "# (tests/chem/*_test.cpp, tests/filter/*_test.cpp, found by pattern; SPEC_HELPERS",
+         "# in the builder).",
          "# Columns as pubchem_rdkit_oracle.tsv, or SMILES and 'rejected'.",
          "# fragments: " + " ".join(FRAGMENTS)] + build_spec_oracle(),
-        ["tests/chem/*_test.cpp"]))
+        ["tests/chem/*_test.cpp", "tests/filter/*_test.cpp"]))
     (OUT / "valence_probes.tsv").write_text(header(
         ["# Rule-generated probe molecules (valence_probes in the builder). Columns: SMILES,",
          "# RDKit's verdict (ok = closed-shell molecule it accepts), RDKit's hydrogens on",

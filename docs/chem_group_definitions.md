@@ -103,36 +103,57 @@ hydroxylamine have no carbon hallmark.
 - The O–C (ester, ether) and N–C (amine) hallmarks are measured **separately for sp3 and
   unsaturated (aromatic, vinyl) carbons**; a peak in either window suggests the group.
 
-| Group | Hallmark | n | Min | 1% | 5% | Median | 95% | 99% | Max |
-|---|---|---|---|---|---|---|---|---|---|
-| carboxylic acid | C=O carbon | 1334 | 154.2 | 160.4 | 163.1 | 172.7 | 182.7 | 185.5 | 189.2 |
-| aldehyde | C=O carbon | 566 | 92.4 | 175.9 | 178.3 | 191.0 | 202.7 | 205.1 | 207.0 |
-| ketone | C=O carbon | 2981 | 115.8 | 169.0 | 174.9 | 195.8 | 213.4 | 218.8 | 225.8 |
-| carboxylic ester | C=O carbon | 3132 | 144.2 | 154.0 | 159.8 | 168.6 | 175.9 | 178.6 | 185.6 |
-| carboxylic ester | O-C carbon (sp3) | 2735 | 46.9 | 50.7 | 51.3 | 61.1 | 88.3 | 105.3 | 119.0 |
-| carboxylic ester | O-C carbon (unsaturated) | 390 | 77.7 | 128.3 | 137.5 | 150.8 | 161.0 | 174.9 | 193.0 |
-| carbonate ester | C=O carbon | 34 | 146.2 | 146.6 | 148.2 | 153.6 | 155.8 | 156.6 | 156.9 |
-| carboxylic anhydride | C=O carbon | 127 | 146.4 | 146.8 | 149.7 | 165.4 | 171.9 | 174.1 | 180.0 |
-| carboxamide | C=O carbon | 2067 | 140.8 | 152.2 | 155.8 | 167.6 | 177.5 | 181.6 | 192.0 |
-| carbamate ester | C=O carbon | 273 | 146.4 | 147.7 | 149.1 | 155.0 | 160.2 | 162.4 | 165.0 |
-| urea | C=O carbon | 298 | 144.3 | 146.9 | 149.1 | 152.8 | 164.3 | 168.5 | 175.9 |
-| alcohol | C-OH carbon | 3295 | 35.5 | 55.5 | 59.4 | 69.6 | 84.8 | 99.9 | 134.8 |
-| enol | C-OH carbon | 259 | 109.6 | 120.5 | 137.5 | 159.6 | 187.7 | 192.8 | 194.0 |
-| phenol | C-OH carbon | 1884 | 123.4 | 133.0 | 140.8 | 154.1 | 164.7 | 166.7 | 169.3 |
-| pyridone | C=O or C-OH carbon | 208 | 139.3 | 142.6 | 154.9 | 162.3 | 177.7 | 181.7 | 183.2 |
-| ether | O-C carbon (sp3) | 6977 | 43.6 | 48.7 | 53.8 | 66.4 | 103.3 | 115.7 | 135.8 |
-| ether | O-C carbon (unsaturated) | 4078 | 79.8 | 132.5 | 140.9 | 155.2 | 168.2 | 184.2 | 229.2 |
-| amine | N-C carbon (sp3) | 4142 | 23.3 | 30.0 | 36.2 | 51.1 | 69.9 | 90.2 | 127.0 |
-| amine | N-C carbon (unsaturated) | 2814 | 29.2 | 107.7 | 120.8 | 147.1 | 165.9 | 175.2 | 199.4 |
-| imine | C=N carbon | 1318 | 63.5 | 122.2 | 132.3 | 154.8 | 175.0 | 185.1 | 199.9 |
-| oxime | C=N carbon | 60 | 130.1 | 135.0 | 140.3 | 151.8 | 164.4 | 167.9 | 168.6 |
-| nitrile | C#N carbon | 974 | 101.3 | 106.2 | 109.9 | 116.5 | 121.1 | 123.5 | 127.1 |
-| alkene | C=C carbon | 14223 | -3.0 | 76.6 | 97.9 | 131.1 | 163.2 | 178.9 | 218.7 |
-| benzene ring | ring carbons | 57787 | 65.1 | 99.8 | 110.3 | 128.7 | 154.3 | 162.3 | 176.5 |
-| pyridine ring | ring carbons | 5277 | 68.0 | 100.1 | 111.7 | 137.1 | 160.0 | 165.4 | 193.5 |
-| furan ring | ring carbons | 1755 | 61.2 | 96.1 | 104.1 | 134.2 | 158.9 | 163.7 | 167.0 |
-| pyrrole ring | ring carbons | 2569 | 57.8 | 93.3 | 102.5 | 125.4 | 141.5 | 150.0 | 158.0 |
-| thiophene ring | ring carbons | 1066 | 65.1 | 98.8 | 109.5 | 130.7 | 151.2 | 163.8 | 174.7 |
+**DEPT types (measured; awaiting the chemist's sign-off):** each row also lists the DEPT
+types of the carbons it was measured on, read from their structures. A peak suggests the
+group only if its possible DEPT types share one with the row's (a peak without DEPT
+matches on shift alone), so DEPT separates, for example, an aldehyde CH from a ketone C
+near 200 ppm. Because the types are measured, a group member missing from nmrshiftdb2 is
+not covered: it has no formic acid (C=O is CH), methanol (C-OH is CH3), formaldehyde
+(CH2) or HCN (CH).
+
+**Hold-out check:** `tests/filter/holdout_test.cpp` runs the suggestions on the odd-ID
+half, which the windows were not measured on. Per hallmark, the share of carbons whose own
+peak falls in their window, and per group, the share of molecules with the group whose
+spectrum suggests it, must reach 98% less three binomial standard errors
+(sqrt(0.98 × 0.02 / n)); the test prints every rate.
+
+**Using them (`filter`):** the engine holds no table of its own; the caller passes this
+table's text to `filter::parse_hallmark_windows`, then `filter::suggest_groups` lists the
+groups the 13C peaks suggest, each with its peaks and windows as evidence. Groups the
+chemist confirms present or absent are applied by `filter::check_confirmed_groups`: a
+candidate lacking a confirmed group, or having one ruled out, is Eliminated with one reason
+per violated group. Nothing else eliminates.
+
+| Group | Hallmark | DEPT types | n | Min | 1% | 5% | Median | 95% | 99% | Max |
+|---|---|---|---|---|---|---|---|---|---|---|
+| carboxylic acid | C=O carbon | {C} | 1334 | 154.2 | 160.4 | 163.1 | 172.7 | 182.7 | 185.5 | 189.2 |
+| aldehyde | C=O carbon | {CH} | 566 | 92.4 | 175.9 | 178.3 | 191.0 | 202.7 | 205.1 | 207.0 |
+| ketone | C=O carbon | {C} | 2981 | 115.8 | 169.0 | 174.9 | 195.8 | 213.4 | 218.8 | 225.8 |
+| carboxylic ester | C=O carbon | {C, CH} | 3132 | 144.2 | 154.0 | 159.8 | 168.6 | 175.9 | 178.6 | 185.6 |
+| carboxylic ester | O-C carbon (sp3) | {C, CH, CH2, CH3} | 2735 | 46.9 | 50.7 | 51.3 | 61.1 | 88.3 | 105.3 | 119.0 |
+| carboxylic ester | O-C carbon (unsaturated) | {C, CH} | 390 | 77.7 | 128.3 | 137.5 | 150.8 | 161.0 | 174.9 | 193.0 |
+| carbonate ester | C=O carbon | {C} | 34 | 146.2 | 146.6 | 148.2 | 153.6 | 155.8 | 156.6 | 156.9 |
+| carboxylic anhydride | C=O carbon | {C} | 127 | 146.4 | 146.8 | 149.7 | 165.4 | 171.9 | 174.1 | 180.0 |
+| carboxamide | C=O carbon | {C, CH} | 2067 | 140.8 | 152.2 | 155.8 | 167.6 | 177.5 | 181.6 | 192.0 |
+| carbamate ester | C=O carbon | {C} | 273 | 146.4 | 147.7 | 149.1 | 155.0 | 160.2 | 162.4 | 165.0 |
+| urea | C=O carbon | {C} | 298 | 144.3 | 146.9 | 149.1 | 152.8 | 164.3 | 168.5 | 175.9 |
+| alcohol | C-OH carbon | {C, CH, CH2} | 3295 | 35.5 | 55.5 | 59.4 | 69.6 | 84.8 | 99.9 | 134.8 |
+| enol | C-OH carbon | {C, CH} | 259 | 109.6 | 120.5 | 137.5 | 159.6 | 187.7 | 192.8 | 194.0 |
+| phenol | C-OH carbon | {C} | 1884 | 123.4 | 133.0 | 140.8 | 154.1 | 164.7 | 166.7 | 169.3 |
+| pyridone | C=O or C-OH carbon | {C} | 208 | 139.3 | 142.6 | 154.9 | 162.3 | 177.7 | 181.7 | 183.2 |
+| ether | O-C carbon (sp3) | {C, CH, CH2, CH3} | 6977 | 43.6 | 48.7 | 53.8 | 66.4 | 103.3 | 115.7 | 135.8 |
+| ether | O-C carbon (unsaturated) | {C, CH} | 4078 | 79.8 | 132.5 | 140.9 | 155.2 | 168.2 | 184.2 | 229.2 |
+| amine | N-C carbon (sp3) | {C, CH, CH2, CH3} | 4142 | 23.3 | 30.0 | 36.2 | 51.1 | 69.9 | 90.2 | 127.0 |
+| amine | N-C carbon (unsaturated) | {C, CH} | 2814 | 29.2 | 107.7 | 120.8 | 147.1 | 165.9 | 175.2 | 199.4 |
+| imine | C=N carbon | {C, CH} | 1318 | 63.5 | 122.2 | 132.3 | 154.8 | 175.0 | 185.1 | 199.9 |
+| oxime | C=N carbon | {C, CH} | 60 | 130.1 | 135.0 | 140.3 | 151.8 | 164.4 | 167.9 | 168.6 |
+| nitrile | C#N carbon | {C} | 974 | 101.3 | 106.2 | 109.9 | 116.5 | 121.1 | 123.5 | 127.1 |
+| alkene | C=C carbon | {C, CH, CH2} | 14223 | -3.0 | 76.6 | 97.9 | 131.1 | 163.2 | 178.9 | 218.7 |
+| benzene ring | ring carbons | {C, CH} | 57787 | 65.1 | 99.8 | 110.3 | 128.7 | 154.3 | 162.3 | 176.5 |
+| pyridine ring | ring carbons | {C, CH} | 5277 | 68.0 | 100.1 | 111.7 | 137.1 | 160.0 | 165.4 | 193.5 |
+| furan ring | ring carbons | {C, CH} | 1755 | 61.2 | 96.1 | 104.1 | 134.2 | 158.9 | 163.7 | 167.0 |
+| pyrrole ring | ring carbons | {C, CH} | 2569 | 57.8 | 93.3 | 102.5 | 125.4 | 141.5 | 150.0 | 158.0 |
+| thiophene ring | ring carbons | {C, CH} | 1066 | 65.1 | 98.8 | 109.5 | 130.7 | 151.2 | 163.8 | 174.7 |
 
 ## Known differences from the external checks
 Every disagreement is listed by molecule in `tests/data/reference/known_differences.tsv`
@@ -180,6 +201,7 @@ files):
 | mixture | 1 | chem tests | ARISE reads one molecule; '.' is a ParseError (molecule.hpp) |
 | unsupported-element | 1 | chem tests | outside ARISE's elements (molecule.hpp) |
 | hypervalent-charged | 68 | valence probes | RDKit's valence lists for charged Cl, Br, I, P and Si (3-6 bonds on Cl+/Br+, ate complexes of I-, P-, Si-, P+ with 6 bonds) differ from ARISE's charge-shifted normal valences |
+| small-sample | 1 | hold-out | measured on 127 carbons of 56 molecules, too few for its 1st-99th window to hold 98% of new data; cantharidin-type saturated cyclic anhydrides (175-178 ppm) fall above it (awaiting the chemist's sign-off) |
 
 **Gaps these checks exposed** (no group today; add one if it matters): OH on a
 heteroaromatic carbon other than pyridine (hydroxyfurans, pyrazolols), ynols, oxime ethers,

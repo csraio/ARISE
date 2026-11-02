@@ -59,7 +59,8 @@ inline constexpr std::array<std::string_view, @ARISE_GROUP_DEFINITIONS_CHUNK_COU
     kGroupDefinitionsChunks{
 @ARISE_GROUP_DEFINITIONS_CHUNKS@};
 
-// tests/chem/molecule_test.cpp and perception_test.cpp (the hand-written spec cases).
+// tests/chem/molecule_test.cpp, perception_test.cpp and tests/filter/groups_test.cpp (the
+// hand-written spec cases).
 inline constexpr std::array<std::string_view, @ARISE_SPEC_SOURCES_CHUNK_COUNT@>
     kSpecSourcesChunks{
 @ARISE_SPEC_SOURCES_CHUNKS@};
