@@ -282,9 +282,9 @@ std::string dept_list(nmr1d::CarbonTypeSet types) {
     return list;
 }
 
-bool inside(const nmr1d::CarbonAssignment& peak, const HallmarkWindow& window) {
+bool inside(const nmr1d::CarbonAssignment& peak, const HallmarkWindow& window, bool use_dept) {
     return peak.shift >= window.low && peak.shift <= window.high &&
-           !(peak.possible & window.types).empty();
+           (!use_dept || !(peak.possible & window.types).empty());
 }
 
 }  // namespace
@@ -379,13 +379,14 @@ std::string lab_table_template() {
 }
 
 std::vector<GroupSuggestion> suggest_groups(std::span<const nmr1d::CarbonAssignment> peaks,
-                                            std::span<const HallmarkWindow> windows) {
+                                            std::span<const HallmarkWindow> windows,
+                                            SuggestOptions options) {
     std::vector<GroupSuggestion> suggestions;
     for (const auto group : chem::kAllGroups) {
         GroupSuggestion suggestion{.group = group, .evidence = {}};
         for (std::size_t p = 0; p < peaks.size(); ++p) {
             for (const auto& window : windows) {
-                if (window.group == group && inside(peaks[p], window)) {
+                if (window.group == group && inside(peaks[p], window, options.use_dept)) {
                     suggestion.evidence.push_back(
                         {.peak = p, .shift = peaks[p].shift, .window = window});
                 }

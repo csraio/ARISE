@@ -112,13 +112,15 @@ hydroxylamine have no carbon hallmark.
 - The O–C (ester, ether) and N–C (amine) hallmarks are measured **separately for sp3 and
   unsaturated (aromatic, vinyl) carbons**; a peak in either window suggests the group.
 
-**DEPT types (measured; awaiting the chemist's sign-off):** each row also lists the DEPT
-types of the carbons it was measured on, read from their structures. A peak suggests the
-group only if its possible DEPT types share one with the row's (a peak without DEPT
-matches on shift alone), so DEPT separates, for example, an aldehyde CH from a ketone C
-near 200 ppm. Because the types are measured, a group member missing from nmrshiftdb2 is
-not covered: it has no formic acid (C=O is CH), methanol (C-OH is CH3), formaldehyde
-(CH2) or HCN (CH).
+**DEPT types (measured; the chemist's choice, 2026-11-02):** each row also lists the DEPT
+types of the carbons it was measured on, read from their structures. By default a peak
+suggests the group only if its possible DEPT types share one with the row's (a peak
+without DEPT matches on shift alone), so DEPT separates, for example, an aldehyde CH from a
+ketone C near 200 ppm. Because the types are measured, a group member missing from
+nmrshiftdb2 is not covered: it has no formic acid (C=O is CH), methanol (C-OH is CH3),
+formaldehyde (CH2) or HCN (CH). The chemist can therefore switch DEPT off
+(`filter::SuggestOptions::use_dept`, a tick-box in the web app), and every peak then
+matches on shift alone.
 
 **Hold-out check:** `tests/filter/holdout_test.cpp` runs the suggestions on the odd-ID
 half, which the windows were not measured on. Per hallmark, the share of carbons whose own
