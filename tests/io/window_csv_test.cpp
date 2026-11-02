@@ -100,6 +100,8 @@ TEST(WindowCsv, RejectsImplausibleOrReversedWindows) {
                  {"line 2", "low_ppm", "-90"});
     expect_error("group,low_ppm,high_ppm\nketone,220,190\n", ErrorCode::OutOfRange,
                  {"line 2", "low_ppm 220 is above high_ppm 190"});
+    expect_error("group,low_ppm,high_ppm\nketone,200.5,200\n", ErrorCode::OutOfRange,
+                 {"line 2", "low_ppm 200.5 is above high_ppm 200"});
 }
 
 }  // namespace
