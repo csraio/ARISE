@@ -73,7 +73,7 @@ private:
 /// Reads a SMILES string in Kekulé form, as PubChem writes it, into one molecule:
 /// - Unbracketed organic-subset atoms B C N O P S F Cl Br I get implicit hydrogens up to
 ///   their lowest normal valence that fits (OpenSMILES): B 3; C 4; N 3, 5; O 2; P 3, 5;
-///   S 2, 4, 6; halogens 1.
+///   S 2, 4, 6; F, Cl, Br 1; I 1, 3, 5 (beyond OpenSMILES: hypervalent iodine).
 /// - Bracket atoms: isotope, element (also H, Si, Se), hydrogen count, charge;
 ///   stereo marks (@, @@) are accepted and ignored.
 /// - Bonds - = # (and directional / \ as single), branches, ring closures 0-9 and %nn
@@ -94,7 +94,8 @@ enum class StructureIssue : std::uint8_t {
 [[nodiscard]] std::string_view to_string(StructureIssue issue) noexcept;
 
 /// The first issue found, checked in this order: charge, radical, unusual valence.
-/// Normal valences: H, halogens 1; O 2; B 3; C, Si 4; N, P 3, 5; S, Se 2, 4, 6.
+/// Normal valences: H, F, Cl, Br 1; I 1, 3, 5; O 2; B 3; C, Si 4; N, P 3, 5; S, Se 2, 4, 6.
+/// Neutral N at valence 5 with only single bonds is an unusual valence (five sigma bonds).
 /// Empty for a closed-shell neutral molecule.
 [[nodiscard]] std::optional<StructureIssue> structure_issue(const Molecule& molecule);
 

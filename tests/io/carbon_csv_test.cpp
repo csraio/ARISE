@@ -68,16 +68,16 @@ TEST(CarbonCsv, SharesThePeakListFormat) {
 }
 
 TEST(CarbonCsv, AcceptsShiftsAtTheWindowEdges) {
-    const auto result = parse_carbon_csv("shift_ppm\n-20\n250\n");
+    const auto result = parse_carbon_csv("shift_ppm\n-50\n300\n");
     ASSERT_TRUE(result.ok()) << result.error().message;
     EXPECT_EQ(result.value()[0].shift, kMinCarbonShift);
     EXPECT_EQ(result.value()[1].shift, kMaxCarbonShift);
 }
 
 TEST(CarbonCsv, ShiftOutsideTheWindowIsOutOfRange) {
-    expect_error(parse_carbon_csv, "shift_ppm\n250.5\n", ErrorCode::OutOfRange,
-                 {"line 2", "250.5", "13C"});
-    expect_error(parse_carbon_csv, "shift_ppm\n-20.5\n", ErrorCode::OutOfRange, {"line 2"});
+    expect_error(parse_carbon_csv, "shift_ppm\n300.5\n", ErrorCode::OutOfRange,
+                 {"line 2", "300.5", "13C"});
+    expect_error(parse_carbon_csv, "shift_ppm\n-50.5\n", ErrorCode::OutOfRange, {"line 2"});
     // An offset in Hz at 100 MHz, the classic wrong-unit mistake.
     expect_error(parse_carbon_csv, "shift_ppm\n12840\n", ErrorCode::OutOfRange, {"line 2"});
 }
@@ -129,8 +129,8 @@ TEST(DeptCsv, ZeroIntensityIsOutOfRange) {
 }
 
 TEST(DeptCsv, ShiftOutsideTheCarbonWindowIsOutOfRange) {
-    expect_error(parse_dept_csv, "shift_ppm,intensity\n300,1\n", ErrorCode::OutOfRange,
-                 {"line 2", "300"});
+    expect_error(parse_dept_csv, "shift_ppm,intensity\n310,1\n", ErrorCode::OutOfRange,
+                 {"line 2", "310"});
 }
 
 TEST(DeptCsv, HeaderOnlyIsAnEmptySpectrum) {

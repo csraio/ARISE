@@ -18,10 +18,11 @@ struct ObservedPeak {
     friend bool operator==(const ObservedPeak&, const ObservedPeak&) = default;
 };
 
-/// Plausibility window for 1H shifts, deliberately wide. Strongly shielded protons do
-/// reach negative values (the internal methyls of trans-15,16-dimethyldihydropyrene sit
-/// near -4.25 ppm; Boekelheide), and acidic or chelated OH can exceed 15 ppm. Values
-/// outside this window almost always mean the wrong column: 13C shifts or Hz offsets.
+/// Plausibility window for 1H shifts: a convention, deliberately wide. It must contain
+/// every 1H shift nmrshiftdb2 lists for an in-scope molecule (measured by
+/// scripts/build_reference_sets.py into tests/data/reference/measurements.tsv and checked
+/// by a test). Values outside it almost always mean the wrong column: 13C shifts or Hz
+/// offsets.
 inline constexpr core::Ppm kMinProtonShift{-10.0};
 inline constexpr core::Ppm kMaxProtonShift{25.0};
 

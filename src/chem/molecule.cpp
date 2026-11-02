@@ -96,7 +96,7 @@ constexpr std::array kElements{
     ElementInfo{
         .element = Element::I,
         .symbol = "I",
-        .valences = {1, 0, 0},
+        .valences = {1, 3, 5},  // hypervalent iodine reagents (user decision 2026-11-01)
         .organic_subset = true,
     },
 };
@@ -649,6 +649,21 @@ std::string_view to_string(StructureIssue issue) noexcept {
     return "?";
 }
 
+namespace {
+
+// Neutral N at valence 5 with only single bonds: valence 5 needs a double bond (N(=O)=O).
+bool is_five_sigma_nitrogen(const Molecule& molecule, std::size_t atom) {
+    if (molecule.atoms()[atom].element != Element::N || molecule.valence(atom) != 5) {
+        return false;
+    }
+    const auto bonds = molecule.bonds_of(atom);
+    return std::all_of(bonds.begin(), bonds.end(), [&](std::size_t bond) {
+        return molecule.bonds()[bond].order == BondOrder::Single;
+    });
+}
+
+}  // namespace
+
 std::optional<StructureIssue> structure_issue(const Molecule& molecule) {
     const auto atoms = molecule.atoms();
     for (const auto& atom : atoms) {
@@ -664,7 +679,8 @@ std::optional<StructureIssue> structure_issue(const Molecule& molecule) {
         }
     }
     for (std::size_t i = 0; i < atoms.size(); ++i) {
-        if (molecule.valence(i) > max_valence(atoms[i].element)) {
+        if (molecule.valence(i) > max_valence(atoms[i].element) ||
+            is_five_sigma_nitrogen(molecule, i)) {
             return StructureIssue::UnusualValence;
         }
     }

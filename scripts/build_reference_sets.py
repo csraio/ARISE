@@ -31,6 +31,7 @@ import gzip
 import hashlib
 import json
 import re
+import statistics
 import sys
 import urllib.request
 from pathlib import Path
@@ -52,6 +53,7 @@ PUBCHEM_URL = (
 )
 CHEBI_SDF_URL = "https://ftp.ebi.ac.uk/pub/databases/chebi/SDF/chebi_lite_3_stars.sdf.gz"
 CHEBI_OBO_URL = "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi_lite.obo.gz"
+CHEBI_STRUCTURES_URL = "https://ftp.ebi.ac.uk/pub/databases/chebi/flat_files/structures.tsv.gz"
 PUBCHEM_INCHIKEY_URL = (
     "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/inchikey/{}/property/InChI,InChIKey/JSON"
 )
@@ -65,10 +67,25 @@ MAX_HEAVY_ATOMS = 25
 FRAGMENTS = ["fr_ketone", "fr_aldehyde", "fr_COO2", "fr_ester", "fr_Al_OH", "fr_phenol",
              "fr_nitrile", "fr_urea", "fr_benzene", "fr_pyridine", "fr_furan", "fr_thiophene"]
 
-# The ChEBI classes of docs/chem_group_definitions.md.
-CHEBI_CLASSES = [33575, 17478, 17087, 33308, 46722, 35873, 37622, 23003, 47857, 30879, 33823,
-                 33853, 38183, 25698, 32952, 35358, 24631, 24709, 24783, 25750, 18379, 78840,
-                 22712, 26421, 24129, 26455, 26961]
+DEFINITIONS = REPO / "docs" / "chem_group_definitions.md"
+
+
+def definition_classes():
+    """The ChEBI class of each row of the signed-off groups table, in row order. Read from
+    the doc so the IDs are typed in one place only (tests compare the C++ table with it)."""
+    classes = []
+    for line in DEFINITIONS.read_text(encoding="utf-8").splitlines():
+        match = re.match(r"\|\s*(\d+)\s*\|.*\|\s*CHEBI:(\d+) [^|]*\|", line)
+        if match:
+            if int(match.group(1)) != len(classes) + 1:
+                sys.exit(f"{DEFINITIONS}: groups table row {match.group(1)} out of order")
+            classes.append(int(match.group(2)))
+    if not classes:
+        sys.exit(f"{DEFINITIONS}: no groups table found")
+    return classes
+
+
+CHEBI_CLASSES = definition_classes()
 # ChEBI's ring classes (furans, pyridines, ...) are skeleton classes that include
 # non-aromatic rings (butenolides, dihydropyridines). ARISE's ring groups mean aromatic
 # rings, so each ChEBI row also records RDKit's aromatic ring counts, and a ChEBI ring
@@ -104,6 +121,31 @@ def header(lines, sources):
     ]
     head += [f"# Source: {source}" for source in sources]
     return "\n".join(head + lines) + "\n"
+
+
+# ---- record integrity -------------------------------------------------------------------
+
+# Records dropped because the structure RDKit reads from the record does not give the
+# InChI the database itself lists for it, per source (written into each file's header).
+DROPPED = collections.Counter()
+
+
+def inchi_skeleton(inchi):
+    """The formula, connection and hydrogen layers of an InChI: what ARISE uses (it ignores
+    stereo, and nmrshiftdb2 adds an isotope layer of all-natural '+0' entries)."""
+    layers = inchi.strip().split("/")
+    kept = layers[:2]
+    for layer in layers[2:]:
+        if layer[:1] not in ("c", "h"):
+            break  # main layer ends; later /h layers belong to the isotopic layer
+        kept.append(layer)
+    return "/".join(kept)
+
+
+def same_structure(mol, listed_inchi):
+    """Whether RDKit's InChI of `mol` agrees with the database's own InChI."""
+    return bool(listed_inchi) and inchi_skeleton(Chem.MolToInchi(mol)) == inchi_skeleton(
+        listed_inchi)
 
 
 # ---- nmrshiftdb2 ------------------------------------------------------------------------
@@ -143,6 +185,10 @@ def kekule_smiles_with_order(mol):
 
 def nmrshiftdb_record(mol):
     if not mol.HasProp("NMREDATA_1D_13C") or not mol.HasProp("NMREDATA_ASSIGNMENT"):
+        return None
+    listed = mol.GetProp("NMREDATA_INCHI") if mol.HasProp("NMREDATA_INCHI") else ""
+    if not same_structure(mol, listed):
+        DROPPED["nmrshiftdb2"] += 1
         return None
     elements = {a.GetSymbol() for a in mol.GetAtoms()}
     heavy_count = sum(1 for a in mol.GetAtoms() if a.GetAtomicNum() > 1)
@@ -198,6 +244,84 @@ def build_nmrshiftdb(sd_path):
     print(f"nmrshiftdb2: {len(records)} usable 13C records, sampled {len(sample)}",
           file=sys.stderr)
     return [f"{db_id}\t{smiles}\t{marks}" for db_id, smiles, marks in sample]
+
+
+# Measured, not remembered: the C=N carbon of oximes vs oxime ethers (the user's rule for
+# a new group: only if its shift differs appreciably; docs/chem_group_definitions.md), with
+# the classes stated as SMARTS here so the measurement is reproducible.
+CN_CLASSES = [("oxime", Chem.MolFromSmarts("[CX3]=[NX2][OX2H1]")),
+              ("oxime-ether", Chem.MolFromSmarts("[CX3]=[NX2][OX2][#6]"))]
+
+
+def spectrum_shifts(block):
+    """Every peak shift of an NMREDATA_1D_* block (lines 'shift, L=label')."""
+    shifts = []
+    for raw in block.splitlines():
+        match = re.match(r"\s*(-?\d+(?:\.\d+)?)\s*,", raw)
+        if match:
+            shifts.append(float(match.group(1)))
+    return shifts
+
+
+def carbon_shifts(mol):
+    """molfile atom index (0-based) -> assigned 13C shift."""
+    assignment = parse_assignment(mol.GetProp("NMREDATA_ASSIGNMENT")) or {}
+    labels = parse_13c_labels(mol.GetProp("NMREDATA_1D_13C"))
+    shifts = {}
+    for label in labels & set(assignment):
+        shift, atoms = assignment[label]
+        for number in atoms:
+            if 0 < number <= mol.GetNumAtoms() and mol.GetAtomWithIdx(number - 1).GetSymbol() == "C":
+                shifts[number - 1] = shift
+    return shifts
+
+
+def in_scope(mol):
+    """Neutral, single-fragment molecules of ARISE's elements (the scope of every sample)."""
+    return ({a.GetSymbol() for a in mol.GetAtoms()} <= ALLOWED
+            and not any(a.GetFormalCharge() or a.GetNumRadicalElectrons() for a in mol.GetAtoms())
+            and len(Chem.GetMolFrags(mol)) == 1)
+
+
+def measure_nmrshiftdb(sd_path):
+    """Measurement lines for measurements.tsv: the range of every listed 1H and 13C shift
+    of in-scope molecules (the plausibility windows of io/peak_csv.hpp and io/carbon_csv.hpp
+    must contain it), and the C=N carbon shifts of CN_CLASSES. Records failing the InChI
+    check are skipped."""
+    extremes = {}
+    cn = collections.defaultdict(list)
+    for mol in Chem.ForwardSDMolSupplier(str(sd_path), removeHs=False, sanitize=True):
+        if mol is None or not mol.HasProp("NMREDATA_INCHI"):
+            continue
+        try:
+            if not in_scope(mol) or not same_structure(mol, mol.GetProp("NMREDATA_INCHI")):
+                continue
+        except Exception:  # an RDKit failure on one record must not stop the build
+            continue
+        for nucleus in ("1H", "13C"):
+            prop = f"NMREDATA_1D_{nucleus}"
+            if mol.HasProp(prop):
+                for shift in spectrum_shifts(mol.GetProp(prop)):
+                    low, high = extremes.get(nucleus, (shift, shift))
+                    extremes[nucleus] = (min(low, shift), max(high, shift))
+        if mol.HasProp("NMREDATA_1D_13C") and mol.HasProp("NMREDATA_ASSIGNMENT"):
+            shifts = carbon_shifts(mol)
+            for atom in mol.GetAtoms():
+                atom.SetIntProp("molfile_index", atom.GetIdx())
+            heavy = Chem.RemoveHs(mol)  # SMARTS H counts need implicit hydrogens
+            for name, pattern in CN_CLASSES:
+                for match in heavy.GetSubstructMatches(pattern):
+                    carbon = heavy.GetAtomWithIdx(match[0]).GetIntProp("molfile_index")
+                    if carbon in shifts:
+                        cn[name].append(shifts[carbon])
+    lines = [f"shift-range\t{nucleus}\t{low:g}\t{high:g}"
+             for nucleus, (low, high) in sorted(extremes.items())]
+    for name, _ in CN_CLASSES:
+        values = sorted(cn[name])
+        cuts = statistics.quantiles(values, n=20, method="inclusive")
+        lines.append(f"cn-shift\t{name}\t{len(values)}\t{statistics.median(values):.1f}"
+                     f"\t{cuts[0]:.1f}\t{cuts[-1]:.1f}")
+    return lines
 
 
 # ---- PubChem + RDKit oracle -------------------------------------------------------------
@@ -258,8 +382,16 @@ def fragment_counts(mol):
     return [getattr(Fragments, name)(mol) for name in FRAGMENTS]
 
 
+def read_smiles(smiles):
+    """RDKit's reading of `smiles`, keeping explicit [H] atoms so the atom order matches
+    ARISE's (ARISE keeps them as atoms and counts them toward their neighbour)."""
+    params = Chem.SmilesParserParams()
+    params.removeHs = False
+    return Chem.MolFromSmiles(smiles, params)
+
+
 def oracle_line(smiles):
-    mol = Chem.MolFromSmiles(smiles)
+    mol = read_smiles(smiles)
     if mol is None or any(a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
         return None
     # Where RDKit's aromaticity model and ARISE's knowingly differ, the test skips the
@@ -267,7 +399,7 @@ def oracle_line(smiles):
     # heteroatoms, ...), and rings RDKit calls aromatic despite an exocyclic double bond
     # (quinoid tautomers) or a ring triple bond (arynes).
     differs = 1 if aromaticity_differs(mol) else 0
-    hydrogens = " ".join(str(a.GetTotalNumHs()) for a in mol.GetAtoms())
+    hydrogens = " ".join(str(a.GetTotalNumHs(includeNeighbors=True)) for a in mol.GetAtoms())
     classes = " ".join(str(c) for c in symmetry_classes(mol))
     fragments = " ".join(str(c) for c in fragment_counts(mol))
     return f"{smiles}\t{hydrogens}\t{classes}\t{fragments}\t{differs}"
@@ -291,12 +423,100 @@ def build_oracle(formulas):
     return lines
 
 
+# ---- hand-written spec cases and valences ---------------------------------------------
+
+# Test helpers in tests/chem/*_test.cpp whose first argument is a SMILES literal.
+SPEC_HELPERS = ("parse_smiles", "parse_ok", "parse", "expect_error", "groups", "environments",
+                "carbon_class_sizes", "topological")
+
+
+def spec_smiles():
+    """Every SMILES literal the hand-written chem tests pass to a SPEC_HELPERS function,
+    found by pattern so no list is typed by hand."""
+    pattern = re.compile(r"\b(?:" + "|".join(SPEC_HELPERS) + r')\("((?:[^"\\]|\\.)*)"')
+    found = set()
+    for path in sorted((REPO / "tests" / "chem").glob("*_test.cpp")):
+        for match in pattern.finditer(path.read_text(encoding="utf-8")):
+            found.add(match.group(1).encode().decode("unicode_escape"))
+    return sorted(found)
+
+
+def build_spec_oracle():
+    """RDKit's view of each spec SMILES: an oracle line (same columns as the PubChem
+    oracle), or 'rejected' where RDKit refuses it (unparsable, valence error, radical)."""
+    lines = []
+    for smiles in spec_smiles():
+        if "\t" in smiles or "\n" in smiles:
+            continue
+        line = oracle_line(smiles) if smiles else None
+        lines.append(line if line is not None else f"{smiles}\trejected")
+    return lines
+
+
+# Organic-subset elements of OpenSMILES (implicit hydrogens from normal valences) and the
+# elements ARISE accepts only in brackets.
+ORGANIC_SUBSET = ["B", "C", "N", "O", "P", "S", "F", "Cl", "Br", "I"]
+BRACKET_ONLY = ["Si", "Se"]
+
+
+def valence_probes():
+    """Probe molecules generated by rule, not chosen: each organic-subset element with
+    0-6 methyl neighbours (implicit H), and each element in brackets with 0-4 explicit H and
+    0-6 methyls. Columns: SMILES, RDKit's verdict ('ok' for a closed-shell molecule it
+    accepts, else 'rejected'), RDKit's hydrogens on the probe atom (atom 0)."""
+    smiles = []
+    for element in ORGANIC_SUBSET:
+        smiles += [element + "(C)" * k for k in range(7)]
+    for element in ORGANIC_SUBSET + BRACKET_ONLY:
+        for h in range(5):
+            atom = f"[{element}H{h}]" if h else f"[{element}]"
+            smiles += [atom + "(C)" * k for k in range(7) if h + k <= 6]
+    lines = []
+    for s in smiles:
+        mol = read_smiles(s)
+        if mol is None or any(a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
+            lines.append(f"{s}\trejected\t-")
+        else:
+            lines.append(f"{s}\tok\t{mol.GetAtomWithIdx(0).GetTotalNumHs(includeNeighbors=True)}")
+    return lines
+
+
+def unsaturation(mol):
+    """Rings (cyclomatic number: bonds - atoms + 1; RDKit's ring count is a symmetrized
+    set that overcounts cages) plus pi bonds, on the Kekule graph."""
+    kekule = Chem.Mol(mol)
+    Chem.Kekulize(kekule, clearAromaticFlags=True)
+    pi = sum(int(b.GetBondTypeAsDouble()) - 1 for b in kekule.GetBonds())
+    return kekule.GetNumBonds() - kekule.GetNumAtoms() + 1 + pi
+
+
+def lowest_valence_only(mol):
+    """Whether every atom has the lowest valence RDKit's periodic table lists for it. A
+    formula cannot tell S=O or P=O from S or P at their lowest valence, so the formula's
+    degrees of unsaturation equal rings + pi bonds only for such molecules."""
+    table = Chem.GetPeriodicTable()
+    return all(a.GetTotalValence() == min(v for v in table.GetValenceList(a.GetAtomicNum())
+                                          if v >= 0)
+               for a in mol.GetAtoms())
+
+
+def dou_line(smiles):
+    """Molecular formula (RDKit) and rings + pi bonds of one sample molecule; None when
+    the comparison does not apply (see lowest_valence_only)."""
+    from rdkit.Chem import rdMolDescriptors
+    mol = Chem.MolFromSmiles(smiles)
+    if mol is None or not lowest_valence_only(mol):
+        return None
+    return f"{rdMolDescriptors.CalcMolFormula(mol)}\t{unsaturation(mol)}"
+
+
 # ---- ChEBI ---------------------------------------------------------------------------------
 
 
-def chebi_parents(obo_path):
-    """is_a parents of every ChEBI term."""
+def chebi_terms(obo_path):
+    """(is_a parents, name) of every ChEBI term."""
     parents = collections.defaultdict(set)
+    names = {}
     term = None
     with gzip.open(obo_path, "rt", encoding="utf-8") as handle:
         for line in handle:
@@ -304,9 +524,11 @@ def chebi_parents(obo_path):
                 term = None
             elif line.startswith("id: CHEBI:"):
                 term = int(line[len("id: CHEBI:"):].strip())
+            elif line.startswith("name: ") and term is not None:
+                names[term] = line[len("name: "):].strip()
             elif line.startswith("is_a: CHEBI:") and term is not None:
                 parents[term].add(int(line[len("is_a: CHEBI:"):].split()[0]))
-    return parents
+    return parents, names
 
 
 def chebi_classes_of(parents):
@@ -376,8 +598,23 @@ def chebi_record(mol):
     return smiles, rings
 
 
-def build_chebi(sdf_path, obo_path):
-    classes_of = chebi_classes_of(chebi_parents(obo_path))
+def chebi_inchis(structures_path):
+    """ChEBI compound id -> the standard InChIs ChEBI lists for its structures."""
+    import csv
+    csv.field_size_limit(1 << 30)  # molfile columns are long
+    inchis = collections.defaultdict(set)
+    with gzip.open(structures_path, "rt", encoding="utf-8", newline="") as handle:
+        for row in csv.DictReader(handle, delimiter="\t"):
+            if row["standard_inchi"]:
+                inchis[int(row["compound_id"])].add(row["standard_inchi"])
+    return inchis
+
+
+def build_chebi(sdf_path, obo_path, structures_path):
+    """(data lines, '# class <id>: <name>' header lines)."""
+    parents, names = chebi_terms(obo_path)
+    listed_inchis = chebi_inchis(structures_path)
+    classes_of = chebi_classes_of(parents)
     members = collections.defaultdict(list)  # class -> [ChEBI id]
     records = {}
     with gzip.open(sdf_path, "rb") as handle:
@@ -390,6 +627,10 @@ def build_chebi(sdf_path, obo_path):
                 continue
             try:
                 record = chebi_record(mol)
+                if record is not None and not any(
+                        same_structure(mol, inchi) for inchi in listed_inchis[chebi_id]):
+                    DROPPED["chebi"] += 1
+                    record = None
             except Exception:  # an RDKit failure on one record must not stop the build
                 record = None
             if record is None:
@@ -404,8 +645,9 @@ def build_chebi(sdf_path, obo_path):
         sample.update(ids[::step][:CHEBI_PER_CLASS])
         print(f"chebi CHEBI:{cls}: {len(ids)} molecules", file=sys.stderr)
     print(f"chebi: {len(records)} in scope, sampled {len(sample)}", file=sys.stderr)
-    return [f"{i}\t{records[i][0]}\t{' '.join(str(c) for c in records[i][1])}"
-            f"\t{' '.join(str(c) for c in records[i][2])}" for i in sorted(sample)]
+    lines = [f"{i}\t{records[i][0]}\t{' '.join(str(c) for c in records[i][1])}"
+             f"\t{' '.join(str(c) for c in records[i][2])}" for i in sorted(sample)]
+    return lines, [f"# class {cls}: {names[cls]}" for cls in CHEBI_CLASSES]
 
 
 def chebi_release(obo_path):
@@ -435,8 +677,28 @@ def main():
          "# available here under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt,",
          f"# {LICENSE_URL}).",
          "# Columns: nmrshiftdb2 id, Kekule SMILES, per-atom 13C peak index",
-         "# ('.' = not carbon, '-' = carbon not listed in the assignment)."] + nmr_lines,
+         "# ('.' = not carbon, '-' = carbon not listed in the assignment).",
+         f"# Dropped {DROPPED['nmrshiftdb2']} records whose molfile does not give the InChI",
+         "# nmrshiftdb2 lists for it (formula, connection and hydrogen layers)."] + nmr_lines,
         [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
+    (OUT / "measurements.tsv").write_text(header(
+        ["# Measured from nmrshiftdb2 (made available under the nmrshiftdb2 Database License,",
+         "# NMRSHIFTDB2_LICENSE.txt) over in-scope records that pass the InChI check.",
+         "# shift-range: nucleus, lowest and highest listed shift (ppm).",
+         "# cn-shift: class (CN_CLASSES in the builder), n, median, 5th and 95th percentile",
+         "# (statistics.quantiles, inclusive method) of the C=N carbon shift (ppm)."]
+        + measure_nmrshiftdb(args.nmrshiftdb),
+        [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
+    (OUT / "spec_rdkit_oracle.tsv").write_text(header(
+        ["# RDKit's reading of every SMILES literal in the hand-written chem tests",
+         "# (tests/chem/*_test.cpp, found by pattern; SPEC_HELPERS in the builder).",
+         "# Columns as pubchem_rdkit_oracle.tsv, or SMILES and 'rejected'.",
+         "# fragments: " + " ".join(FRAGMENTS)] + build_spec_oracle(),
+        ["tests/chem/*_test.cpp"]))
+    (OUT / "valence_probes.tsv").write_text(header(
+        ["# Rule-generated probe molecules (valence_probes in the builder). Columns: SMILES,",
+         "# RDKit's verdict (ok = closed-shell molecule it accepts), RDKit's hydrogens on",
+         "# atom 0."] + valence_probes(), ["RDKit's valence model"]))
 
     formulas = ["C4H8O2", "C8H8O2", "C10H12O2"]
     oracle = build_oracle(formulas)
@@ -452,10 +714,21 @@ def main():
     args.chebi.mkdir(parents=True, exist_ok=True)
     sdf = args.chebi / "chebi_lite_3_stars.sdf.gz"
     obo = args.chebi / "chebi_lite.obo.gz"
-    for url, path in [(CHEBI_SDF_URL, sdf), (CHEBI_OBO_URL, obo)]:
+    structures = args.chebi / "structures.tsv.gz"
+    for url, path in [(CHEBI_SDF_URL, sdf), (CHEBI_OBO_URL, obo),
+                      (CHEBI_STRUCTURES_URL, structures)]:
         if not path.exists():
             download(url, path)
-    chebi = build_chebi(sdf, obo)
+    chebi, class_names = build_chebi(sdf, obo, structures)
+    samples = [line.split("\t")[1] for line in chebi + nmr_lines]
+    dou = sorted({line for line in map(dou_line, samples) if line is not None})
+    (OUT / "dou_checks.tsv").write_text(header(
+        ["# Molecular formula and rings + pi bonds (RDKit, Kekule graph) of every molecule in",
+         "# chebi_classes.tsv and nmrshiftdb2_13c_sample.tsv in which every atom has its",
+         "# lowest RDKit valence (a formula cannot see S=O, P=O). Columns: formula, DoU.",
+         "# Derived from ChEBI (CC BY 4.0) and nmrshiftdb2 (nmrshiftdb2 Database License,",
+         "# NMRSHIFTDB2_LICENSE.txt)."] + dou,
+        ["chebi_classes.tsv", "nmrshiftdb2_13c_sample.tsv"]))
     (OUT / "chebi_classes.tsv").write_text(header(
         [f"# Contains data from ChEBI ({chebi_release(obo)}), https://www.ebi.ac.uk/chebi/,",
          "# licensed under CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/).",
@@ -463,8 +736,12 @@ def main():
          "# Columns: ChEBI id, Kekule SMILES, the ChEBI classes of",
          "# docs/chem_group_definitions.md among the molecule's is_a ancestors, RDKit's",
          "# aromatic ring counts in the order of the 'rings:' line.",
-         "# rings: " + " ".join(name for name, _ in CHEBI_RINGS)] + chebi,
-        [f"{CHEBI_SDF_URL} sha256={sha256(sdf)}", f"{CHEBI_OBO_URL} sha256={sha256(obo)}"]))
+         f"# Dropped {DROPPED['chebi']} in-scope records whose molfile does not give the",
+         "# standard InChI ChEBI lists for the compound (structures.tsv).",
+         "# ChEBI's own name of each class (chem_group_definitions.md must agree):"]
+        + class_names + ["# rings: " + " ".join(name for name, _ in CHEBI_RINGS)] + chebi,
+        [f"{CHEBI_SDF_URL} sha256={sha256(sdf)}", f"{CHEBI_OBO_URL} sha256={sha256(obo)}",
+         f"{CHEBI_STRUCTURES_URL} sha256={sha256(structures)}"]))
     print(f"wrote {OUT}", file=sys.stderr)
 
 
