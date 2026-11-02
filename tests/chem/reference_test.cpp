@@ -1057,7 +1057,9 @@ std::set<std::string> spec_literals() {
             if (word_start) {
                 std::string literal;  // C++ escapes: "\\" is one backslash in the SMILES
                 for (auto i = begin; i < sources.size() && sources[i] != '"'; ++i) {
-                    i += sources[i] == '\\' ? 1 : 0;
+                    if (sources[i] == '\\') {
+                        ++i;
+                    }
                     literal += sources[i];
                 }
                 literals.insert(literal);
