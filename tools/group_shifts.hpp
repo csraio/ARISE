@@ -24,15 +24,20 @@ struct ShiftRecord {
 /// The data lines of the extract (columns: id, SMILES, per-atom shift, '.' or '-' if none).
 [[nodiscard]] std::vector<ShiftRecord> parse_shift_extract(std::string_view text);
 
-/// Shift statistics of one hallmark of one group, in ppm.
+/// Shift statistics of one hallmark of one group, in ppm. The O-C and N-C hallmarks
+/// (ester, ether, amine) are measured separately for sp3 and for unsaturated (aromatic,
+/// vinyl) carbons, as "O-C carbon (sp3)" and "O-C carbon (unsaturated)" (user decision
+/// 2026-11-01): one range mixing both spans about 50-160 ppm.
 struct HallmarkShifts {
     chem::Group group = chem::Group::CarboxylicAcid;
-    std::string_view hallmark;
+    std::string hallmark;
     std::size_t n = 0;  // carbons (each key atom of each record once)
     double min = 0;
-    double p5 = 0;  // 5th and 95th percentile, Python statistics.quantiles(n=20, inclusive)
+    double p1 = 0;  // percentiles as Python statistics.quantiles(n=100, method="inclusive")
+    double p5 = 0;
     double median = 0;
     double p95 = 0;
+    double p99 = 0;
     double max = 0;
 };
 
@@ -45,7 +50,7 @@ struct HallmarkShifts {
 /// The provenance header of group_shifts.tsv (comment lines).
 [[nodiscard]] std::string_view group_shifts_header();
 
-/// TSV rows: group, hallmark, n, min, p5, median, p95, max (one decimal).
+/// TSV rows: group, hallmark, n, min, p1, p5, median, p95, p99, max (one decimal).
 [[nodiscard]] std::string to_tsv(const std::vector<HallmarkShifts>& measurements);
 
 }  // namespace arise::tools

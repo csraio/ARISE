@@ -31,9 +31,9 @@ std::optional<double> parse_shift(std::string_view text) {
     return std::stod(std::string{text});
 }
 
-// Python's statistics.quantiles(data, n=20, method="inclusive"), cut point i (1..19).
-double twentieth(const std::vector<double>& sorted, std::size_t i) {
-    constexpr std::size_t kParts = 20;
+// Python's statistics.quantiles(data, n=100, method="inclusive"), percentile i (1..99).
+double percentile(const std::vector<double>& sorted, std::size_t i) {
+    constexpr std::size_t kParts = 100;
     const std::size_t m = sorted.size() - 1;
     const std::size_t j = i * m / kParts;
     const std::size_t delta = (i * m) - (j * kParts);
@@ -43,6 +43,18 @@ double twentieth(const std::vector<double>& sorted, std::size_t i) {
     return ((sorted[j] * static_cast<double>(kParts - delta)) +
             (sorted[j + 1] * static_cast<double>(delta))) /
            static_cast<double>(kParts);
+}
+
+// Whether a hallmark is measured separately for sp3 and unsaturated carbons.
+bool split_by_carbon_type(std::string_view hallmark) {
+    return hallmark == "O-C carbon" || hallmark == "N-C carbon";
+}
+
+bool is_sp3(const chem::Molecule& molecule, std::size_t atom) {
+    const auto bonds = molecule.bonds_of(atom);
+    return std::all_of(bonds.begin(), bonds.end(), [&](std::size_t bond) {
+        return molecule.bonds()[bond].order == chem::BondOrder::Single;
+    });
 }
 
 double median(const std::vector<double>& sorted) {
@@ -58,9 +70,10 @@ std::string fixed1(double value) {
            std::to_string(magnitude % 10);
 }
 
-using Values = std::map<std::pair<std::size_t, std::size_t>, std::vector<double>>;
+// Keyed by (group index, hallmark name with its carbon type where split).
+using Values = std::map<std::pair<std::size_t, std::string>, std::vector<double>>;
 
-// Adds one record's key-atom shifts to `values`, keyed by (group, hallmark) index.
+// Adds one record's key-atom shifts to `values`.
 void collect(const ShiftRecord& record, const chem::Molecule& molecule, Values& values) {
     for (std::size_t g = 0; g < chem::kAllGroups.size(); ++g) {
         const auto group = chem::kAllGroups[g];
@@ -73,8 +86,12 @@ void collect(const ShiftRecord& record, const chem::Molecule& molecule, Values& 
         }
         for (std::size_t h = 0; h < names.size(); ++h) {
             for (const auto atom : atoms[h]) {
+                std::string name{names[h]};
+                if (split_by_carbon_type(name)) {
+                    name += is_sp3(molecule, atom) ? " (sp3)" : " (unsaturated)";
+                }
                 if (const auto& shift = record.shifts[atom]) {
-                    values[{g, h}].push_back(*shift);
+                    values[{g, name}].push_back(*shift);
                 }
             }
         }
@@ -123,12 +140,14 @@ std::vector<HallmarkShifts> measure_group_shifts(const std::vector<ShiftRecord>&
         const auto group = chem::kAllGroups[key.first];
         result.push_back(HallmarkShifts{
             .group = group,
-            .hallmark = chem::hallmarks(group)[key.second],
+            .hallmark = key.second,
             .n = shifts.size(),
             .min = shifts.front(),
-            .p5 = twentieth(shifts, 1),
+            .p1 = percentile(shifts, 1),
+            .p5 = percentile(shifts, 5),
             .median = median(shifts),
-            .p95 = twentieth(shifts, 19),
+            .p95 = percentile(shifts, 95),
+            .p99 = percentile(shifts, 99),
             .max = shifts.back(),
         });
     }
@@ -140,8 +159,10 @@ std::string_view group_shifts_header() {
            "# edit. Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available\n"
            "# under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt).\n"
            "# Records with even IDs; each group's key atoms from ARISE's chem::find_group.\n"
-           "# Columns: group, hallmark, n carbons, min, 5th percentile, median, 95th\n"
-           "# percentile, max (ppm; percentiles as Python statistics.quantiles, inclusive).\n";
+           "# O-C and N-C hallmarks are split into sp3 and unsaturated carbons.\n"
+           "# Columns: group, hallmark, n carbons, min, 1st, 5th percentile, median, 95th,\n"
+           "# 99th percentile, max (ppm; percentiles as Python statistics.quantiles(n=100),\n"
+           "# inclusive). Suggestion windows use 1st-99th (user decision 2026-11-01).\n";
 }
 
 std::string to_tsv(const std::vector<HallmarkShifts>& measurements) {
@@ -149,7 +170,7 @@ std::string to_tsv(const std::vector<HallmarkShifts>& measurements) {
     for (const auto& m : measurements) {
         text.append(chem::to_string(m.group)).append("\t").append(m.hallmark).append("\t");
         text.append(std::to_string(m.n));
-        for (const double value : {m.min, m.p5, m.median, m.p95, m.max}) {
+        for (const double value : {m.min, m.p1, m.p5, m.median, m.p95, m.p99, m.max}) {
             text.append("\t").append(fixed1(value));
         }
         text.append("\n");
