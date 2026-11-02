@@ -1,6 +1,8 @@
 #include "arise/chem/perception.hpp"
 
 #include <algorithm>
+#include <array>
+#include <iterator>
 #include <map>
 #include <set>
 #include <utility>
@@ -774,9 +776,60 @@ bool ring_is(const Molecule& molecule, const Ring& ring, std::size_t size, Eleme
     return count == 1 && std::cmp_equal(carbons + 1, size);
 }
 
-int count_oxygen_group(const Molecule& molecule, const Aromaticity& aromaticity, Group group) {
+using Occurrences = std::vector<GroupOccurrence>;
+
+// One occurrence whose hallmarks are carried by `atoms` (one list per hallmark), sorted.
+GroupOccurrence occurrence(std::vector<std::vector<std::size_t>> atoms) {
+    for (auto& list : atoms) {
+        std::sort(list.begin(), list.end());
+    }
+    return GroupOccurrence{.key_atoms = std::move(atoms)};
+}
+
+// The ester O-C carbons of an ester carbonyl carbon.
+std::vector<std::size_t> ester_carbons(const Molecule& molecule, std::size_t carbonyl) {
+    std::vector<std::size_t> carbons;
+    for (const auto o : carbonyl_sides(molecule, carbonyl).oxygens) {
+        if (ester_oxygen(molecule, o, carbonyl)) {
+            const auto others = heavy_neighbors(molecule, o, carbonyl);
+            carbons.insert(carbons.end(), others.begin(), others.end());
+        }
+    }
+    return carbons;
+}
+
+// Carbonyl-carbon groups (key atom the C=O carbon; an ester also its O-C carbon) and
+// anhydrides (one per bridging O; key atoms both C=O carbons).
+Occurrences find_carbonyl_group(const Molecule& molecule, Group group) {
+    Occurrences found;
+    const std::size_t n = molecule.atoms().size();
+    if (group == Group::CarboxylicAnhydride) {
+        for (std::size_t o = 0; o < n; ++o) {
+            const auto heavy = heavy_neighbors(molecule, o);
+            if (is_element(molecule, o, Element::O) && heavy.size() == 2 &&
+                is_carbonyl_carbon(molecule, heavy[0]) && is_carbonyl_carbon(molecule, heavy[1])) {
+                found.push_back(occurrence({heavy}));
+            }
+        }
+        return found;
+    }
+    for (std::size_t c = 0; c < n; ++c) {
+        if (!is_carbonyl_carbon(molecule, c) || !carbonyl_is(molecule, c, group)) {
+            continue;
+        }
+        if (group == Group::CarboxylicEster) {
+            found.push_back(occurrence({{c}, ester_carbons(molecule, c)}));
+        } else {
+            found.push_back(occurrence({{c}}));
+        }
+    }
+    return found;
+}
+
+Occurrences find_oxygen_group(const Molecule& molecule, const Aromaticity& aromaticity,
+                              Group group) {
     const auto carbocyclic = carbocyclic_aromatic_atoms(molecule, aromaticity);
-    int count = 0;
+    Occurrences found;
     for (std::size_t o = 0; o < molecule.atoms().size(); ++o) {
         if (!is_element(molecule, o, Element::O) || aromaticity.atoms[o]) {
             continue;
@@ -796,20 +849,24 @@ int count_oxygen_group(const Molecule& molecule, const Aromaticity& aromaticity,
                 break;
             case Group::Ether: {
                 const auto heavy = heavy_neighbors(molecule, o);
-                match = molecule.hydrogen_count(o) == 0 && heavy.size() == 2 &&
-                        has_only_single_bonds(molecule, o) &&
-                        std::all_of(heavy.begin(), heavy.end(), [&](std::size_t c) {
-                            return is_element(molecule, c, Element::C) &&
-                                   !is_carbonyl_carbon(molecule, c);
-                        });
+                if (molecule.hydrogen_count(o) == 0 && heavy.size() == 2 &&
+                    has_only_single_bonds(molecule, o) &&
+                    std::all_of(heavy.begin(), heavy.end(), [&](std::size_t c) {
+                        return is_element(molecule, c, Element::C) &&
+                               !is_carbonyl_carbon(molecule, c);
+                    })) {
+                    found.push_back(occurrence({heavy}));
+                }
                 break;
             }
             default:
                 break;
         }
-        count += match ? 1 : 0;
+        if (match) {
+            found.push_back(occurrence({{*carbon}}));
+        }
     }
-    return count;
+    return found;
 }
 
 // A 2-/4-pyridone ring: five C and one N with only single bonds, a C=O on a ring carbon,
@@ -832,12 +889,18 @@ bool is_pyridone_ring(const Molecule& molecule, const Ring& ring) {
     return nitrogens == 1 && carbonyls == 1 && ring_double == 2 && carbons == 5;
 }
 
-// Pyridone rings plus OH groups on aromatic pyridine carbons (the hydroxypyridine tautomer).
-int count_pyridones(const Molecule& molecule, const Aromaticity& aromaticity) {
-    const auto rings = RingFinder{molecule, 6}.find();
-    int count = static_cast<int>(std::count_if(rings.begin(), rings.end(), [&](const Ring& ring) {
-        return is_pyridone_ring(molecule, ring);
-    }));
+// Pyridone rings (key atom: the ring C=O carbon) plus OH groups on aromatic pyridine
+// carbons (the hydroxypyridine tautomer; key atom: the C-OH carbon).
+Occurrences find_pyridones(const Molecule& molecule, const Aromaticity& aromaticity) {
+    Occurrences found;
+    for (const auto& ring : RingFinder{molecule, 6}.find()) {
+        if (is_pyridone_ring(molecule, ring)) {
+            const auto carbonyl = std::find_if(ring.begin(), ring.end(), [&](std::size_t a) {
+                return is_carbonyl_carbon(molecule, a);
+            });
+            found.push_back(occurrence({{*carbonyl}}));
+        }
+    }
     for (std::size_t o = 0; o < molecule.atoms().size(); ++o) {
         if (!is_element(molecule, o, Element::O)) {
             continue;
@@ -851,9 +914,11 @@ int count_pyridones(const Molecule& molecule, const Aromaticity& aromaticity) {
                 return ring_is(molecule, ring, 6, Element::N) &&
                        std::find(ring.begin(), ring.end(), *carbon) != ring.end();
             });
-        count += in_pyridine ? 1 : 0;
+        if (in_pyridine) {
+            found.push_back(occurrence({{*carbon}}));
+        }
     }
-    return count;
+    return found;
 }
 
 bool amine_nitrogen(const Molecule& molecule, const Aromaticity& aromaticity, std::size_t n) {
@@ -868,8 +933,9 @@ bool amine_nitrogen(const Molecule& molecule, const Aromaticity& aromaticity, st
     });
 }
 
-int count_sulfonamides(const Molecule& molecule) {
-    int count = 0;
+// Sulfonamide S atoms; the hallmark is not on carbon, so no key atoms.
+Occurrences find_sulfonamides(const Molecule& molecule) {
+    Occurrences found;
     for (std::size_t s = 0; s < molecule.atoms().size(); ++s) {
         if (!is_element(molecule, s, Element::S)) {
             continue;
@@ -885,16 +951,21 @@ int count_sulfonamides(const Molecule& molecule) {
             nitrogen = nitrogen || (order_of(molecule, bond) == BondOrder::Single &&
                                     is_element(molecule, other, Element::N));
         }
-        count += oxo == 2 && nitrogen ? 1 : 0;
+        if (oxo == 2 && nitrogen) {
+            found.push_back(occurrence({}));
+        }
     }
-    return count;
+    return found;
 }
 
-// Bonds between `a` and `b` atoms of `order`, outside aromatic rings, passing `accept`.
+// Bonds between `a` and `b` atoms of `order`, outside aromatic rings, passing `accept`,
+// as (the `a` atom, the `b` atom).
 template <typename Accept>
-int count_bonds(const Molecule& molecule, const Aromaticity& aromaticity, BondOrder order,
-                Element a, Element b, Accept accept) {
-    int count = 0;
+std::vector<std::pair<std::size_t, std::size_t>> find_bonds(const Molecule& molecule,
+                                                            const Aromaticity& aromaticity,
+                                                            BondOrder order, Element a, Element b,
+                                                            Accept accept) {
+    std::vector<std::pair<std::size_t, std::size_t>> found;
     for (std::size_t i = 0; i < molecule.bonds().size(); ++i) {
         const auto& bond = molecule.bonds()[i];
         if (bond.order != order || aromaticity.bonds.contains(i)) {
@@ -902,12 +973,13 @@ int count_bonds(const Molecule& molecule, const Aromaticity& aromaticity, BondOr
         }
         const auto ea = molecule.atoms()[bond.first].element;
         const auto eb = molecule.atoms()[bond.second].element;
-        if ((ea == a && eb == b && accept(bond.first, bond.second)) ||
-            (ea == b && eb == a && accept(bond.second, bond.first))) {
-            ++count;
+        if (ea == a && eb == b && accept(bond.first, bond.second)) {
+            found.emplace_back(bond.first, bond.second);
+        } else if (ea == b && eb == a && accept(bond.second, bond.first)) {
+            found.emplace_back(bond.second, bond.first);
         }
     }
-    return count;
+    return found;
 }
 
 // For a C=N nitrogen: whether it carries a single-bonded O (oxime) or N (hydrazone).
@@ -922,57 +994,81 @@ bool nitrogen_has_single(const Molecule& molecule, std::size_t n, Element elemen
     });
 }
 
-int count_nitrogen_bond_group(const Molecule& molecule, const Aromaticity& aromaticity,
-                              Group group) {
+std::vector<std::pair<std::size_t, std::size_t>> nitrogen_bond_group_bonds(
+    const Molecule& molecule, const Aromaticity& aromaticity, Group group) {
     const auto always = [](std::size_t, std::size_t) { return true; };
     switch (group) {
         case Group::Hydrazine:
-            return count_bonds(molecule, aromaticity, BondOrder::Single, Element::N, Element::N,
-                               [&](std::size_t a, std::size_t b) {
-                                   return !aromaticity.atoms[a] && !aromaticity.atoms[b];
-                               });
+            return find_bonds(molecule, aromaticity, BondOrder::Single, Element::N, Element::N,
+                              [&](std::size_t a, std::size_t b) {
+                                  return !aromaticity.atoms[a] && !aromaticity.atoms[b];
+                              });
         case Group::Hydroxylamine:
-            return count_bonds(molecule, aromaticity, BondOrder::Single, Element::N, Element::O,
-                               [&](std::size_t n, std::size_t o) {
-                                   // An N-oxide's N+-O- is not a hydroxylamine (user
-                                   // decision 2026-11-01).
-                                   const bool n_oxide = molecule.atoms()[n].charge == 1 &&
-                                                        molecule.atoms()[o].charge == -1;
-                                   return has_only_single_bonds(molecule, n) && !n_oxide &&
-                                          !aromaticity.atoms[n] && !aromaticity.atoms[o];
-                               });
+            return find_bonds(molecule, aromaticity, BondOrder::Single, Element::N, Element::O,
+                              [&](std::size_t n, std::size_t o) {
+                                  // An N-oxide's N+-O- is not a hydroxylamine (user
+                                  // decision 2026-11-01).
+                                  const bool n_oxide = molecule.atoms()[n].charge == 1 &&
+                                                       molecule.atoms()[o].charge == -1;
+                                  return has_only_single_bonds(molecule, n) && !n_oxide &&
+                                         !aromaticity.atoms[n] && !aromaticity.atoms[o];
+                              });
         case Group::Imine:
-            return count_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::N,
-                               [&](std::size_t, std::size_t n) {
-                                   return molecule.atoms()[n].charge == 0 &&
-                                          !nitrogen_has_single(molecule, n, Element::O, false) &&
-                                          !nitrogen_has_single(molecule, n, Element::N, false);
-                               });
+            return find_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::N,
+                              [&](std::size_t, std::size_t n) {
+                                  return molecule.atoms()[n].charge == 0 &&
+                                         !nitrogen_has_single(molecule, n, Element::O, false) &&
+                                         !nitrogen_has_single(molecule, n, Element::N, false);
+                              });
         case Group::Oxime:
-            return count_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::N,
-                               [&](std::size_t, std::size_t n) {
-                                   return molecule.atoms()[n].charge == 0 &&
-                                          nitrogen_has_single(molecule, n, Element::O, true);
-                               });
+            return find_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::N,
+                              [&](std::size_t, std::size_t n) {
+                                  return molecule.atoms()[n].charge == 0 &&
+                                         nitrogen_has_single(molecule, n, Element::O, true);
+                              });
         case Group::Nitrile:  // not an isocyanide, [C-]#[N+]
-            return count_bonds(molecule, aromaticity, BondOrder::Triple, Element::C, Element::N,
-                               [&](std::size_t c, std::size_t n) {
-                                   return molecule.atoms()[c].charge == 0 &&
-                                          molecule.atoms()[n].charge == 0;
-                               });
+            return find_bonds(molecule, aromaticity, BondOrder::Triple, Element::C, Element::N,
+                              [&](std::size_t c, std::size_t n) {
+                                  return molecule.atoms()[c].charge == 0 &&
+                                         molecule.atoms()[n].charge == 0;
+                              });
         case Group::Alkene:
-            return count_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::C,
-                               always);
+            return find_bonds(molecule, aromaticity, BondOrder::Double, Element::C, Element::C,
+                              always);
         default:
-            return 0;
+            return {};
     }
 }
 
-int count_rings(const Molecule& molecule, const Aromaticity& aromaticity, std::size_t size,
-                Element hetero) {
-    return static_cast<int>(
-        std::count_if(aromaticity.rings.begin(), aromaticity.rings.end(),
-                      [&](const Ring& ring) { return ring_is(molecule, ring, size, hetero); }));
+// The bond groups: key atom the C of C=N and C#N, both C of C=C, none for N-N and N-O.
+Occurrences find_nitrogen_bond_group(const Molecule& molecule, const Aromaticity& aromaticity,
+                                     Group group) {
+    Occurrences found;
+    for (const auto& [a, b] : nitrogen_bond_group_bonds(molecule, aromaticity, group)) {
+        if (group == Group::Hydrazine || group == Group::Hydroxylamine) {
+            found.push_back(occurrence({}));
+        } else if (group == Group::Alkene) {
+            found.push_back(occurrence({{a, b}}));
+        } else {
+            found.push_back(occurrence({{a}}));  // the carbon of C=N or C#N
+        }
+    }
+    return found;
+}
+
+// Aromatic rings of `size` with `hetero` (C for all-carbon); key atoms the ring carbons.
+Occurrences find_rings(const Molecule& molecule, const Aromaticity& aromaticity, std::size_t size,
+                       Element hetero) {
+    Occurrences found;
+    for (const auto& ring : aromaticity.rings) {
+        if (ring_is(molecule, ring, size, hetero)) {
+            std::vector<std::size_t> carbons;
+            std::copy_if(ring.begin(), ring.end(), std::back_inserter(carbons),
+                         [&](std::size_t a) { return is_element(molecule, a, Element::C); });
+            found.push_back(occurrence({carbons}));
+        }
+    }
+    return found;
 }
 
 }  // namespace
@@ -1101,71 +1197,114 @@ std::string_view to_string(Group group) noexcept {
     return "?";
 }
 
-int count_group(const Molecule& molecule, Group group) {
+std::span<const std::string_view> hallmarks(Group group) noexcept {
+    static constexpr std::array<std::string_view, 1> kCarbonyl{"C=O carbon"};
+    static constexpr std::array<std::string_view, 2> kEster{"C=O carbon", "O-C carbon"};
+    static constexpr std::array<std::string_view, 1> kHydroxyl{"C-OH carbon"};
+    static constexpr std::array<std::string_view, 1> kPyridone{"C=O or C-OH carbon"};
+    static constexpr std::array<std::string_view, 1> kEther{"O-C carbon"};
+    static constexpr std::array<std::string_view, 1> kAmine{"N-C carbon"};
+    static constexpr std::array<std::string_view, 1> kImine{"C=N carbon"};
+    static constexpr std::array<std::string_view, 1> kNitrile{"C#N carbon"};
+    static constexpr std::array<std::string_view, 1> kAlkene{"C=C carbon"};
+    static constexpr std::array<std::string_view, 1> kRing{"ring carbons"};
+    switch (group) {
+        case Group::CarboxylicAcid:
+        case Group::Aldehyde:
+        case Group::Ketone:
+        case Group::CarbonateEster:
+        case Group::CarboxylicAnhydride:
+        case Group::Carboxamide:
+        case Group::CarbamateEster:
+        case Group::Urea:
+            return kCarbonyl;
+        case Group::CarboxylicEster:
+            return kEster;
+        case Group::Alcohol:
+        case Group::Enol:
+        case Group::Phenol:
+            return kHydroxyl;
+        case Group::Pyridone:
+            return kPyridone;
+        case Group::Ether:
+            return kEther;
+        case Group::Amine:
+            return kAmine;
+        case Group::Imine:
+        case Group::Oxime:
+            return kImine;
+        case Group::Nitrile:
+            return kNitrile;
+        case Group::Alkene:
+            return kAlkene;
+        case Group::BenzeneRing:
+        case Group::PyridineRing:
+        case Group::FuranRing:
+        case Group::PyrroleRing:
+        case Group::ThiopheneRing:
+            return kRing;
+        case Group::Sulfonamide:
+        case Group::Hydrazine:
+        case Group::Hydroxylamine:
+            return {};
+    }
+    return {};
+}
+
+std::vector<GroupOccurrence> find_group(const Molecule& molecule, Group group) {
     const auto aromaticity = perceive_aromaticity(molecule);
-    const std::size_t n = molecule.atoms().size();
     switch (group) {
         case Group::CarboxylicAcid:
         case Group::Aldehyde:
         case Group::Ketone:
         case Group::CarboxylicEster:
         case Group::CarbonateEster:
+        case Group::CarboxylicAnhydride:
         case Group::Carboxamide:
         case Group::CarbamateEster:
-        case Group::Urea: {
-            int count = 0;
-            for (std::size_t c = 0; c < n; ++c) {
-                count += is_carbonyl_carbon(molecule, c) && carbonyl_is(molecule, c, group) ? 1 : 0;
-            }
-            return count;
-        }
-        case Group::CarboxylicAnhydride: {
-            int count = 0;
-            for (std::size_t o = 0; o < n; ++o) {
-                const auto heavy = heavy_neighbors(molecule, o);
-                count += is_element(molecule, o, Element::O) && heavy.size() == 2 &&
-                                 is_carbonyl_carbon(molecule, heavy[0]) &&
-                                 is_carbonyl_carbon(molecule, heavy[1])
-                             ? 1
-                             : 0;
-            }
-            return count;
-        }
+        case Group::Urea:
+            return find_carbonyl_group(molecule, group);
         case Group::Alcohol:
         case Group::Enol:
         case Group::Phenol:
         case Group::Ether:
-            return count_oxygen_group(molecule, aromaticity, group);
+            return find_oxygen_group(molecule, aromaticity, group);
         case Group::Pyridone:
-            return count_pyridones(molecule, aromaticity);
+            return find_pyridones(molecule, aromaticity);
         case Group::Amine: {
-            int count = 0;
-            for (std::size_t a = 0; a < n; ++a) {
-                count += amine_nitrogen(molecule, aromaticity, a) ? 1 : 0;
+            Occurrences found;
+            for (std::size_t a = 0; a < molecule.atoms().size(); ++a) {
+                if (amine_nitrogen(molecule, aromaticity, a)) {
+                    found.push_back(occurrence({heavy_neighbors(molecule, a)}));
+                }
             }
-            return count;
+            return found;
         }
         case Group::Sulfonamide:
-            return count_sulfonamides(molecule);
+            return find_sulfonamides(molecule);
         case Group::Hydrazine:
         case Group::Hydroxylamine:
         case Group::Imine:
         case Group::Oxime:
         case Group::Nitrile:
         case Group::Alkene:
-            return count_nitrogen_bond_group(molecule, aromaticity, group);
+            return find_nitrogen_bond_group(molecule, aromaticity, group);
         case Group::BenzeneRing:
-            return count_rings(molecule, aromaticity, 6, Element::C);
+            return find_rings(molecule, aromaticity, 6, Element::C);
         case Group::PyridineRing:
-            return count_rings(molecule, aromaticity, 6, Element::N);
+            return find_rings(molecule, aromaticity, 6, Element::N);
         case Group::FuranRing:
-            return count_rings(molecule, aromaticity, 5, Element::O);
+            return find_rings(molecule, aromaticity, 5, Element::O);
         case Group::PyrroleRing:
-            return count_rings(molecule, aromaticity, 5, Element::N);
+            return find_rings(molecule, aromaticity, 5, Element::N);
         case Group::ThiopheneRing:
-            return count_rings(molecule, aromaticity, 5, Element::S);
+            return find_rings(molecule, aromaticity, 5, Element::S);
     }
-    return 0;
+    return {};
+}
+
+int count_group(const Molecule& molecule, Group group) {
+    return static_cast<int>(find_group(molecule, group).size());
 }
 
 }  // namespace arise::chem

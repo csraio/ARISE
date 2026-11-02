@@ -30,6 +30,8 @@ original proposal `docs/ARISE_Project_Proposal.pdf` (partly superseded by ADR 00
 - `bench/` Google Benchmark · `apps/cli/` native CLI · `apps/wasm/` Emscripten bindings
 - `public/` web client (static HTML + JavaScript ES modules, no backend)
 - `scripts/` Python data builders · `research/` Python experiments
+- `tools/` development-only C++ tools (e.g. measuring group shifts with ARISE's own
+  definitions); built with the tests, never part of the engine, CLI or web app
 - `third-party/` pinned dependencies (do not edit) · `docs/adr/` design decisions
 
 Modules (namespace `arise::<module>`), dependencies point downward only:

@@ -217,12 +217,16 @@ def nmrshiftdb_record(mol):
             peak_of_atom[number] = index
     smiles, atoms = kekule_smiles_with_order(mol)
     marks = []
+    shifts = []
     for atom in atoms:
         if atom.GetSymbol() != "C":
             marks.append(".")
-        else:
-            marks.append(str(peak_of_atom.get(atom.GetIntProp("molfile_number"), "-")))
-    return smiles, " ".join(marks)
+            shifts.append(".")
+            continue
+        peak = peak_of_atom.get(atom.GetIntProp("molfile_number"))
+        marks.append("-" if peak is None else str(peak))
+        shifts.append("-" if peak is None else f"{peaks[peak][0]:g}")
+    return smiles, " ".join(marks), " ".join(shifts)
 
 
 def build_nmrshiftdb(sd_path):
@@ -245,7 +249,8 @@ def build_nmrshiftdb(sd_path):
     sample = records[::step][:SAMPLE_SIZE]
     print(f"nmrshiftdb2: {len(records)} usable 13C records, sampled {len(sample)}",
           file=sys.stderr)
-    return [f"{db_id}\t{smiles}\t{marks}" for db_id, smiles, marks in sample]
+    return ([f"{db_id}\t{smiles}\t{marks}" for db_id, smiles, marks, _ in sample],
+            [f"{db_id}\t{smiles}\t{shifts}" for db_id, smiles, _, shifts in records])
 
 
 # Measured, not remembered: the C=N carbon of oximes vs oxime ethers (the user's rule for
@@ -420,6 +425,58 @@ def fragment_counts(mol):
     return [getattr(Fragments, name)(mol) for name in FRAGMENTS]
 
 
+def fragment_patterns():
+    """RDKit's published SMARTS of each fragment, read from its FragmentDescriptors.csv."""
+    from rdkit import RDConfig
+    patterns = {}
+    with open(Path(RDConfig.RDDataDir) / "FragmentDescriptors.csv", encoding="utf-8") as handle:
+        for line in handle:
+            fields = line.rstrip("\n").split("\t")
+            if fields[0] in FRAGMENTS:
+                patterns[fields[0]] = Chem.MolFromSmarts(fields[2])
+    if set(patterns) != set(FRAGMENTS):
+        sys.exit(f"FragmentDescriptors.csv lacks {set(FRAGMENTS) - set(patterns)}")
+    return patterns
+
+
+FRAGMENT_PATTERNS = fragment_patterns()
+
+
+# Which atoms of each RDKit fragment pattern carry the group's NMR hallmark (positions in
+# the published SMARTS), for the atom-level check of chem::find_group's key atoms:
+# fr_ketone [#6][CX3](=O)[#6] -> the C=O carbon is atom 1; fr_ester
+# [#6][CX3](=O)[OX2H0][#6] -> the C=O carbon (1) and the O-C carbon (4); rings -> their
+# carbons. A hallmark name per entry, as in chem::hallmarks.
+KEY_ATOMS = {
+    "fr_ketone": [("C=O carbon", [1])],
+    "fr_aldehyde": [("C=O carbon", [0])],
+    "fr_COO2": [("C=O carbon", [0])],
+    "fr_ester": [("C=O carbon", [1]), ("O-C carbon", [4])],
+    "fr_Al_OH": [("C-OH carbon", [0])],
+    "fr_phenol": [("C-OH carbon", [1])],
+    "fr_nitrile": [("C#N carbon", [1])],
+    "fr_urea": [("C=O carbon", [0])],
+    "fr_benzene": [("ring carbons", [0, 1, 2, 3, 4, 5])],
+    "fr_pyridine": [("ring carbons", [1, 2, 3, 4, 5])],
+    "fr_furan": [("ring carbons", [1, 2, 3, 4])],
+    "fr_thiophene": [("ring carbons", [1, 2, 3, 4])],
+}
+
+
+def key_atoms(mol, patterns):
+    """Per fragment (FRAGMENTS order) and hallmark: the sorted atoms RDKit's pattern
+    matches at the KEY_ATOMS positions, as 'name=1,4' items joined by '/' ('-' if none)."""
+    columns = []
+    for name in FRAGMENTS:
+        matches = mol.GetSubstructMatches(patterns[name], uniquify=True)
+        items = []
+        for hallmark, positions in KEY_ATOMS[name]:
+            atoms = sorted({m[p] for m in matches for p in positions})
+            items.append(hallmark.replace(" ", "_") + "=" + (",".join(map(str, atoms)) or "-"))
+        columns.append("/".join(items))
+    return ";".join(columns)
+
+
 def read_smiles(smiles):
     """RDKit's reading of `smiles`, keeping explicit [H] atoms so the atom order matches
     ARISE's (ARISE keeps them as atoms and counts them toward their neighbour)."""
@@ -442,7 +499,8 @@ def oracle_line(smiles):
     fragments = " ".join(str(c) for c in fragment_counts(mol))
     inchi = inchi_classes(mol)
     inchi_text = " ".join(str(c) for c in inchi) if inchi is not None else "-"
-    return f"{smiles}\t{hydrogens}\t{classes}\t{fragments}\t{differs}\t{inchi_text}"
+    keys = key_atoms(mol, FRAGMENT_PATTERNS)
+    return f"{smiles}\t{hydrogens}\t{classes}\t{fragments}\t{differs}\t{inchi_text}\t{keys}"
 
 
 def build_oracle(formulas):
@@ -755,7 +813,16 @@ def main():
         args.nmrshiftdb.parent.mkdir(parents=True, exist_ok=True)
         download(NMRSHIFTDB_URL, args.nmrshiftdb)
     download(LICENSE_URL, OUT / "NMRSHIFTDB2_LICENSE.txt")
-    nmr_lines = build_nmrshiftdb(args.nmrshiftdb)
+    nmr_lines, nmr_all = build_nmrshiftdb(args.nmrshiftdb)
+    (OUT / "nmrshiftdb2_13c_all.tsv").write_text(header(
+        ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",
+         "# available here under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt,",
+         f"# {LICENSE_URL}).",
+         "# Every in-scope record with an assigned 13C spectrum that passes the InChI check,",
+         "# for measuring each group's hallmark shifts (tools/measure_group_shifts).",
+         "# Columns: nmrshiftdb2 id, Kekule SMILES, per-atom assigned 13C shift in ppm",
+         "# ('.' = not carbon, '-' = carbon not listed in the assignment)."] + nmr_all,
+        [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
     (OUT / "nmrshiftdb2_13c_sample.tsv").write_text(header(
         ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",
          "# available here under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt,",
@@ -803,7 +870,8 @@ def main():
          "# RDKit fragment counts in the order of the 'fragments:' line, 1 if RDKit's",
          "# aromaticity knowingly differs from ARISE's (rings ARISE does not model, quinoid",
          "# tautomers, arynes), standard InChI's equivalence classes (AuxInfo /E:; '-' if",
-         "# InChI fails).",
+         "# InChI fails), the key atoms RDKit's fragment patterns match (KEY_ATOMS; per",
+         "# fragment 'hallmark=atoms' items, fragments separated by ';').",
          "# fragments: " + " ".join(FRAGMENTS)] + oracle,
         [PUBCHEM_URL.format(f) for f in formulas]))
 

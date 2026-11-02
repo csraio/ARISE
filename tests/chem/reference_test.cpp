@@ -13,6 +13,7 @@
 #include "arise/io/number.hpp"
 #include "arise/io/peak_csv.hpp"
 #include "arise/io/pubchem.hpp"
+#include "group_shifts.hpp"
 #include "reference_fixtures.hpp"
 
 #include <gtest/gtest.h>
@@ -149,6 +150,8 @@ struct OracleEntry {
     std::vector<int> fragments;  // order of the file's "# fragments:" line
     bool aromaticity_differs = false;
     std::vector<int> inchi_classes;  // standard InChI's equivalence classes; empty if none
+    // Per fragment (";"), the atoms RDKit's pattern matches per hallmark ("C=O_carbon=3,7/...").
+    std::string_view key_atoms;
 };
 
 // Oracle lines of `text` (pubchem_rdkit_oracle.tsv, or the accepted rows of
@@ -160,7 +163,7 @@ std::vector<OracleEntry> oracle(std::string_view text) {
             continue;
         }
         const auto fields = split(line, '\t');
-        if (fields.size() != 6) {
+        if (fields.size() != 7) {
             ADD_FAILURE() << "malformed oracle line: " << line;
             continue;
         }
@@ -171,6 +174,7 @@ std::vector<OracleEntry> oracle(std::string_view text) {
             .fragments = integers(fields[3]),
             .aromaticity_differs = fields[4] == "1",
             .inchi_classes = fields[5] == "-" ? std::vector<int>{} : integers(fields[5]),
+            .key_atoms = fields[6],
         });
     }
     return entries;
@@ -1241,6 +1245,161 @@ TEST(Provenance, NamedChargeSeparatedCompoundsAreCandidates) {
     for (const auto line : lines) {
         EXPECT_EQ(named_compound_problem(split(line, '\t'), searches), "") << line;
     }
+}
+
+// ---- Key atoms of the groups (chem::find_group) ------------------------------------------
+
+// ARISE's key atoms of `groups` for `hallmark`, merged and sorted.
+std::vector<std::size_t> arise_key_atoms(const arise::chem::Molecule& molecule,
+                                         const std::vector<Group>& groups,
+                                         std::string_view hallmark) {
+    std::set<std::size_t> atoms;
+    for (const auto group : groups) {
+        const auto names = arise::chem::hallmarks(group);
+        const auto at = std::find(names.begin(), names.end(), hallmark);
+        if (at == names.end()) {
+            continue;
+        }
+        const auto index = static_cast<std::size_t>(at - names.begin());
+        for (const auto& occurrence : arise::chem::find_group(molecule, group)) {
+            atoms.insert(occurrence.key_atoms[index].begin(), occurrence.key_atoms[index].end());
+        }
+    }
+    return {atoms.begin(), atoms.end()};
+}
+
+// RDKit's key atoms per hallmark for one fragment column ("C=O_carbon=3,7/O-C_carbon=1").
+std::vector<std::pair<std::string, std::vector<std::size_t>>> rdkit_key_atoms(
+    std::string_view column) {
+    std::vector<std::pair<std::string, std::vector<std::size_t>>> result;
+    for (const auto item : split(column, '/')) {
+        const auto eq = item.find('=', item.find("carbon"));
+        std::string name{item.substr(0, eq)};
+        std::replace(name.begin(), name.end(), '_', ' ');
+        std::vector<std::size_t> atoms;
+        if (item.substr(eq + 1) != "-") {
+            for (const auto value : split(item.substr(eq + 1), ',')) {
+                atoms.push_back(static_cast<std::size_t>(integers(value).front()));
+            }
+        }
+        result.emplace_back(std::move(name), std::move(atoms));
+    }
+    return result;
+}
+
+// The fragments of one oracle molecule whose counts agree but whose key atoms do not.
+std::string key_atom_differences(const arise::chem::Molecule& molecule, const OracleEntry& entry,
+                                 const std::vector<std::string_view>& names) {
+    std::string differences;
+    const auto columns = split(entry.key_atoms, ';');
+    for (const auto& check : fragment_checks()) {
+        const auto column = std::find(names.begin(), names.end(), check.fragment);
+        const auto index = static_cast<std::size_t>(column - names.begin());
+        int ours = 0;
+        for (const auto group : check.groups) {
+            ours += arise::chem::count_group(molecule, group);
+        }
+        if (column == names.end() || ours != entry.fragments[index]) {
+            continue;  // count differences are GroupCountsMatchRdkitFragments' business
+        }
+        for (const auto& [hallmark, theirs] : rdkit_key_atoms(columns[index])) {
+            if (arise_key_atoms(molecule, check.groups, hallmark) != theirs) {
+                differences.append(" ").append(check.fragment).append(" ").append(hallmark);
+            }
+        }
+    }
+    return differences;
+}
+
+TEST(Reference, KeyAtomsMatchRdkitFragmentPatterns) {
+    // Where ARISE and RDKit count a fragment alike, the atoms that carry its hallmark must
+    // be the ones RDKit's published pattern matches (positions in the builder's KEY_ATOMS).
+    const auto names = header_names(rdkit_oracle_text(), "# fragments: ");
+    std::vector<std::string> problems;
+    std::size_t checked = 0;
+    for (const auto& entry : oracle()) {
+        const auto molecule = arise::chem::parse_smiles(entry.smiles);
+        if (entry.aromaticity_differs || !molecule.ok()) {
+            continue;
+        }
+        ++checked;
+        const auto differences = key_atom_differences(molecule.value(), entry, names);
+        if (!differences.empty()) {
+            problems.push_back(std::string{entry.smiles} + ":" + differences);
+        }
+    }
+    expect_no_disagreements(problems, checked);
+}
+
+// What is wrong with the occurrences of `group` in `molecule`: one atom list per hallmark,
+// every key atom a carbon. Empty if nothing.
+std::string occurrence_problem(const arise::chem::Molecule& molecule, Group group) {
+    for (const auto& occurrence : arise::chem::find_group(molecule, group)) {
+        if (occurrence.key_atoms.size() != arise::chem::hallmarks(group).size()) {
+            return std::string{arise::chem::to_string(group)} + ": wrong number of hallmarks";
+        }
+        for (const auto& atoms : occurrence.key_atoms) {
+            for (const auto atom : atoms) {
+                if (molecule.atoms()[atom].element != arise::chem::Element::C) {
+                    return std::string{arise::chem::to_string(group)} + ": key atom not carbon";
+                }
+            }
+        }
+    }
+    return {};
+}
+
+TEST(Reference, EveryOccurrenceHasItsHallmarksOnCarbon) {
+    std::vector<std::string> problems;
+    std::size_t checked = 0;
+    for (const auto& entry : oracle()) {
+        const auto molecule = arise::chem::parse_smiles(entry.smiles);
+        if (!molecule.ok()) {
+            continue;
+        }
+        ++checked;
+        for (const auto group : arise::chem::kAllGroups) {
+            const auto problem = occurrence_problem(molecule.value(), group);
+            if (!problem.empty()) {
+                problems.push_back(std::string{entry.smiles} + ": " + problem);
+            }
+        }
+    }
+    expect_no_disagreements(problems, checked);
+}
+
+// ---- Measured hallmark shifts (M3b step 1) ---------------------------------------------
+
+TEST(Provenance, GroupShiftsAreRecomputedFromTheExtract) {
+    // tests/data/reference/group_shifts.tsv must be exactly what ARISE's key atoms measure
+    // over the committed nmrshiftdb2 extract, so no number in it can be typed or stale.
+#ifdef __EMSCRIPTEN__
+    GTEST_SKIP() << "measured offline; about 30 s natively, far slower under wasm checks";
+#else
+    const auto extract = arise::test::join_chunks(arise::test::kNmrshiftdbAllChunks);
+    const auto records = arise::tools::parse_shift_extract(extract);
+    EXPECT_GT(records.size(), 30000U);
+    const auto measured = std::string{arise::tools::group_shifts_header()} +
+                          arise::tools::to_tsv(arise::tools::measure_group_shifts(records));
+    EXPECT_EQ(arise::test::join_chunks(arise::test::kGroupShiftsChunks), measured)
+        << "rerun build/dev/tools/arise_measure_group_shifts";
+#endif
+}
+
+TEST(Provenance, DocumentedGroupShiftsAreTheMeasuredOnes) {
+    // The doc's hallmark-shift table rows must be exactly group_shifts.tsv's.
+    const auto text = arise::test::join_chunks(arise::test::kGroupShiftsChunks);
+    std::size_t rows = 0;
+    for (const auto line : data_lines(text)) {
+        std::string row = "|";
+        for (const auto field : split(line, '\t')) {
+            row.append(" ").append(field).append(" |");
+        }
+        ++rows;
+        EXPECT_NE(group_definitions_text().find(row), std::string::npos)
+            << "doc lacks the measured row: " << row;
+    }
+    EXPECT_GT(rows, 20U);
 }
 
 }  // namespace

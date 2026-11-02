@@ -7,6 +7,7 @@ target_link_libraries(arise_chem_tests
     PRIVATE
         arise::chem
         arise::io
+        arise_group_shifts
         arise_test_fixtures
         GTest::gtest_main)
 arise_set_warnings(arise_chem_tests)
