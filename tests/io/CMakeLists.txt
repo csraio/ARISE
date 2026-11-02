@@ -4,7 +4,8 @@ add_executable(arise_io_tests
     correlation_csv_test.cpp
     number_test.cpp
     peak_csv_test.cpp
-    pubchem_test.cpp)
+    pubchem_test.cpp
+    window_csv_test.cpp)
 
 target_link_libraries(arise_io_tests
     PRIVATE

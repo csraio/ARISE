@@ -230,4 +230,3 @@ valence	[SiH4-](CC[N+](C)(C)C)	accept	hypervalent-charged: RDKit's valence lists
 spec	C(C[NH3+])C[O-]	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
 spec	CCC(=[O+][O-])C	fr_ketone	carbonyl-oxide: C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O
 spec	C[N+](C)(CC)CC([O-])C	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
-holdout	carboxylic anhydride	C=O carbon	small-sample: measured on 127 carbons of 56 molecules, too few for its 1st-99th window to hold 98% of new data; cantharidin-type saturated cyclic anhydrides (175-178 ppm) fall above it (awaiting the chemist's sign-off)

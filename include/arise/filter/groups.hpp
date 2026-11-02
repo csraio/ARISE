@@ -15,35 +15,78 @@
 
 namespace arise::filter {
 
+/// Hallmarks measured on fewer molecules than this use their full measured range (min to
+/// max) instead of the 1st to 99th percentile: below 100 molecules a percentile rests on
+/// less than one molecule (user decision 2026-11-02). A convention, not a constant of
+/// nature.
+inline constexpr std::size_t kMinMoleculesForPercentiles = 100;
+
+/// Where a window's bounds come from, for showing the evidence.
+enum class WindowSource : std::uint8_t {
+    Percentiles,    // 1st to 99th percentile of the measured shifts
+    MeasuredRange,  // min to max of the measured shifts (fewer than 100 molecules)
+    Lab,            // the chemist's own table
+};
+
 /// The 13C window of one hallmark of one group: a peak inside it (inclusive), from a carbon
 /// whose DEPT type is among `types`, suggests the group.
 struct HallmarkWindow {
     chem::Group group = chem::Group::CarboxylicAcid;
     /// As chem::hallmarks names it, plus the carbon type where measured separately
-    /// ("O-C carbon (sp3)").
+    /// ("O-C carbon (sp3)"); for a lab window, the lab's label.
     std::string hallmark;
-    /// The DEPT types of the carbons the window was measured on.
+    /// The DEPT types of the carbons the window was measured on (a lab's choice for a lab
+    /// window; all four when it gives none).
     nmr1d::CarbonTypeSet types;
     core::Ppm low;
     core::Ppm high;
-    /// How many carbons the window was measured on.
+    /// How many carbons, and how many distinct molecules, the window was measured on
+    /// (0 for a lab window).
     std::size_t n = 0;
+    std::size_t molecules = 0;
+    WindowSource source = WindowSource::Percentiles;
 
     friend bool operator==(const HallmarkWindow&, const HallmarkWindow&) = default;
 };
 
-/// Reads hallmark windows from a table in the format of tests/data/reference/group_shifts.tsv
-/// (written by tools/measure_group_shifts): '#' comment lines, then tab-separated rows of
-/// group name (as chem::to_string), hallmark, DEPT types ("{C, CH}"), n, min, 1st, 5th
+/// Reads hallmark windows from a table in the format of data/group_shifts.tsv (written by
+/// tools/measure_group_shifts): '#' comment lines, then tab-separated rows of group name
+/// (as chem::to_string), hallmark, DEPT types ("{C, CH}"), n, molecules, min, 1st, 5th
 /// percentile, median, 95th, 99th percentile, max. A window runs from the 1st to the 99th
-/// percentile (user decision 2026-11-01). The engine holds no table of its own: the caller
-/// supplies it, so its source and licence stay the caller's choice.
+/// percentile (user decision 2026-11-01), or from min to max when the row has fewer than
+/// kMinMoleculesForPercentiles molecules.
 ///
-/// Errors (ParseError, citing the line): a row without 11 fields, an unknown group, empty or
-/// unknown DEPT types, a number that is not a plain decimal or not finite, n of 0, 1st
-/// percentile above the 99th, a group and hallmark listed twice, and a table with no rows.
+/// Errors (ParseError, citing the line): a row without 12 fields, an unknown group, empty or
+/// unknown DEPT types, a count that is not a positive whole number, a number that is not a
+/// plain decimal or not finite, a 1st percentile above the 99th or a min above the max, a
+/// group and hallmark listed twice, and a table with no rows.
 [[nodiscard]] core::Result<std::vector<HallmarkWindow>> parse_hallmark_windows(
     std::string_view text);
+
+/// The windows ARISE ships with: data/group_shifts.tsv, compiled in at configure time and
+/// read with parse_hallmark_windows. Contains information from nmrshiftdb2
+/// (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License.
+[[nodiscard]] core::Result<std::vector<HallmarkWindow>> measured_hallmark_windows();
+
+/// Reads a lab's own windows (io::parse_window_csv: columns group, low_ppm, high_ppm and
+/// optionally hallmark and dept). Group names are matched to chem::to_string ignoring
+/// case. `dept` lists types separated by spaces (C, CH, CH2, CH3, any case); blank means
+/// any type. A blank `hallmark` becomes the group's hallmark names joined by " or "
+/// ("13C window" for a group without one). Errors cite the line: an unknown group (the
+/// message lists the valid names), an unknown DEPT type, a group and hallmark listed
+/// twice, and the reader's own errors.
+[[nodiscard]] core::Result<std::vector<HallmarkWindow>> parse_lab_windows(std::string_view text);
+
+/// The built-in windows with a lab's applied: every group the lab lists keeps only the
+/// lab's windows; every other group keeps its built-in ones. Ordered by group
+/// (chem::kAllGroups), then as given.
+[[nodiscard]] std::vector<HallmarkWindow> merge_windows(std::span<const HallmarkWindow> built_in,
+                                                        std::span<const HallmarkWindow> lab);
+
+/// The built-in windows as a lab table (parse_lab_windows' format, with comment lines
+/// explaining it), for the chemist to download, edit and upload: shifts to one decimal, as
+/// measured. Rows the chemist deletes keep ARISE's windows.
+[[nodiscard]] std::string lab_table_template();
 
 /// One peak that falls in one window of a suggested group.
 struct PeakEvidence {

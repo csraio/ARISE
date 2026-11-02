@@ -1,7 +1,8 @@
 // The suggestion windows checked on data they were not measured from (plan 3b): the
-// windows come from nmrshiftdb2 records with even IDs (tests/data/reference/
-// group_shifts.tsv); here every record with an odd ID is the hold-out. A window runs from
-// the 1st to the 99th percentile, so about 98% of hold-out hallmark carbons should fall in
+// windows come from nmrshiftdb2 records with even IDs (data/group_shifts.tsv); here every
+// record with an odd ID is the hold-out. A window runs from the 1st to the 99th percentile
+// (or over the full measured range for hallmarks from fewer than 100 molecules), so at
+// least about 98% of hold-out hallmark carbons should fall in
 // it. The pass mark is that rate less three binomial standard errors, sqrt(0.98 * 0.02 / n)
 // (a stated convention: it fails a real shortfall without failing small groups on chance).
 // n counts molecules (nmrshiftdb2 IDs), not carbons or spectra: the carbons of one molecule
@@ -116,13 +117,17 @@ void tally_record(const arise::tools::ShiftRecord& record, const arise::chem::Mo
         auto& tally = tallies.carbons[{group, key.hallmark}];
         tally.molecules.insert(record.id);
         ++tally.n;
-        tally.hits += suggests(one, group, key.hallmark) ? 1 : 0;
+        if (suggests(one, group, key.hallmark)) {
+            ++tally.hits;
+        }
     }
     for (const auto group : present) {
         auto& tally = tallies.molecules[group];
         tally.molecules.insert(record.id);
         ++tally.n;
-        tally.hits += suggests(all, group, "") ? 1 : 0;
+        if (suggests(all, group, "")) {
+            ++tally.hits;
+        }
     }
 }
 

@@ -33,6 +33,7 @@ struct HallmarkShifts {
     std::string hallmark;
     nmr1d::CarbonTypeSet types;  // DEPT types of the measured carbons (from their structures)
     std::size_t n = 0;           // carbons (each key atom of each record once)
+    std::size_t molecules = 0;   // distinct nmrshiftdb2 IDs among them
     double min = 0;
     double p1 = 0;  // percentiles as Python statistics.quantiles(n=100, method="inclusive")
     double p5 = 0;
@@ -63,8 +64,8 @@ struct KeyCarbon {
 /// The provenance header of group_shifts.tsv (comment lines).
 [[nodiscard]] std::string_view group_shifts_header();
 
-/// TSV rows: group, hallmark, types ("{C, CH}"), n, min, p1, p5, median, p95, p99, max (one
-/// decimal).
+/// TSV rows: group, hallmark, types ("{C, CH}"), n, molecules, min, p1, p5, median, p95, p99, max
+/// (one decimal).
 [[nodiscard]] std::string to_tsv(const std::vector<HallmarkShifts>& measurements);
 
 }  // namespace arise::tools

@@ -51,7 +51,7 @@ arise_embed_chunks("${PROJECT_SOURCE_DIR}/docs/chem_group_definitions.md"
                    ARISE_GROUP_DEFINITIONS_CHUNKS ARISE_GROUP_DEFINITIONS_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/nmrshiftdb2_13c_all.tsv"
                    ARISE_NMRSHIFTDB_ALL_CHUNKS ARISE_NMRSHIFTDB_ALL_CHUNK_COUNT)
-arise_embed_chunks("${ARISE_REFERENCE_DIR}/group_shifts.tsv"
+arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/group_shifts.tsv"
                    ARISE_GROUP_SHIFTS_CHUNKS ARISE_GROUP_SHIFTS_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/pubchem_cleaning_oracle.tsv"
                    ARISE_CLEANING_ORACLE_CHUNKS ARISE_CLEANING_ORACLE_CHUNK_COUNT)

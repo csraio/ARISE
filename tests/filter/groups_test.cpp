@@ -42,6 +42,8 @@ HallmarkWindow window(Group group, std::string hallmark, CarbonTypeSet types, do
         .low = Ppm{low},
         .high = Ppm{high},
         .n = 1,
+        .molecules = 1,
+        .source = arise::filter::WindowSource::Percentiles,
     };
 }
 
@@ -81,36 +83,39 @@ std::vector<std::vector<std::string_view>> table_rows(std::string_view text) {
     return rows;
 }
 
-// A window's group, hallmark, types, n, low and high, as the table's columns 1-4, 6 and 10.
+// A window's group, hallmark, types, n, molecules, low and high, as in the table.
 std::vector<std::string> window_fields(const HallmarkWindow& w) {
     return {
         std::string{arise::chem::to_string(w.group)},
         w.hallmark,
         arise::nmr1d::to_string(w.types),
         std::to_string(w.n),
+        std::to_string(w.molecules),
         std::to_string(w.low.value()),
         std::to_string(w.high.value()),
     };
 }
 
+// Columns: 0 group, 1 hallmark, 2 types, 3 n, 4 molecules, 5 min, 6 1st, 7 5th,
+// 8 median, 9 95th, 10 99th, 11 max. The window is 1st-99th, or min-max for fewer than
+// kMinMoleculesForPercentiles molecules.
 std::vector<std::string> row_fields(const std::vector<std::string_view>& row) {
-    if (row.size() != 11) {
+    if (row.size() != 12) {
         return {"malformed row"};
     }
+    const bool small = std::stoul(std::string{row[4]}) < arise::filter::kMinMoleculesForPercentiles;
     return {
         std::string{row[0]},
         std::string{row[1]},
         std::string{row[2]},
         std::string{row[3]},
-        std::to_string(std::stod(std::string{row[5]})),
-        std::to_string(std::stod(std::string{row[9]})),
+        std::string{row[4]},
+        std::to_string(std::stod(std::string{row[small ? 5 : 6]})),
+        std::to_string(std::stod(std::string{row[small ? 11 : 10]})),
     };
 }
 
 TEST(HallmarkWindows, ReadsEveryRowOfTheMeasuredTable) {
-    // The measured table (tools/measure_group_shifts): one window per row, from the 1st
-    // (column 6) to the 99th percentile (column 10), with the row's group, hallmark,
-    // types and n.
     const auto text = arise::test::join_chunks(arise::test::kGroupShiftsChunks);
     const auto windows = parse_hallmark_windows(text);
     ASSERT_TRUE(windows.ok()) << windows.error().message;
@@ -122,15 +127,43 @@ TEST(HallmarkWindows, ReadsEveryRowOfTheMeasuredTable) {
     }
 }
 
-constexpr std::string_view kRow = "ketone\tC=O carbon\t{C}\t10\t1.0\t2.0\t3.0\t4.0\t5.0\t6.0\t7.0";
+TEST(HallmarkWindows, TheBuiltInTableIsTheMeasuredOne) {
+    const auto built_in = arise::filter::measured_hallmark_windows();
+    ASSERT_TRUE(built_in.ok()) << built_in.error().message;
+    const auto measured =
+        parse_hallmark_windows(arise::test::join_chunks(arise::test::kGroupShiftsChunks));
+    ASSERT_TRUE(measured.ok()) << measured.error().message;
+    EXPECT_EQ(built_in.value(), measured.value());
+}
+
+// A measured-table row: n carbons from `molecules` molecules, min 1, 1st 2, ..., max 7.
+std::string measured_row(std::string_view molecules) {
+    return "ketone\tC=O carbon\t{C}\t300\t" + std::string{molecules} +
+           "\t1.0\t2.0\t3.0\t4.0\t5.0\t6.0\t7.0\n";
+}
 
 TEST(HallmarkWindows, SkipsCommentsAndBlankLinesAndAcceptsCrlf) {
-    const auto windows = parse_hallmark_windows("# header\n\n" + std::string{kRow} + "\r\n");
+    auto row = measured_row("100");
+    row.insert(row.size() - 1, "\r");
+    const auto windows = parse_hallmark_windows("# header\n\n" + row);
     ASSERT_TRUE(windows.ok()) << windows.error().message;
     ASSERT_EQ(windows.value().size(), 1U);
     auto expected = window(Group::Ketone, "C=O carbon", {CarbonType::C}, 2.0, 6.0);
-    expected.n = 10;
+    expected.n = 300;
+    expected.molecules = 100;
     EXPECT_EQ(windows.value()[0], expected);
+}
+
+TEST(HallmarkWindows, FewerThan100MoleculesUseTheFullMeasuredRange) {
+    const auto at = parse_hallmark_windows(measured_row("100"));
+    const auto below = parse_hallmark_windows(measured_row("99"));
+    ASSERT_TRUE(at.ok() && below.ok());
+    EXPECT_EQ(at.value()[0].low, Ppm{2.0});
+    EXPECT_EQ(at.value()[0].high, Ppm{6.0});
+    EXPECT_EQ(at.value()[0].source, arise::filter::WindowSource::Percentiles);
+    EXPECT_EQ(below.value()[0].low, Ppm{1.0});
+    EXPECT_EQ(below.value()[0].high, Ppm{7.0});
+    EXPECT_EQ(below.value()[0].source, arise::filter::WindowSource::MeasuredRange);
 }
 
 void expect_parse_error(const std::string& text, std::string_view fragment) {
@@ -144,7 +177,8 @@ TEST(HallmarkWindows, RejectsMalformedTables) {
     const auto row = [](std::string_view group, std::string_view types, std::string_view n,
                         std::string_view p1, std::string_view p99) {
         return std::string{group} + "\tC=O carbon\t" + std::string{types} + "\t" + std::string{n} +
-               "\t1.0\t" + std::string{p1} + "\t3.0\t4.0\t5.0\t" + std::string{p99} + "\t7.0\n";
+               "\t150\t1.0\t" + std::string{p1} + "\t3.0\t4.0\t5.0\t" + std::string{p99} +
+               "\t7.0\n";
     };
     expect_parse_error("# only comments\n", "no rows");
     expect_parse_error("", "no rows");
@@ -162,13 +196,110 @@ TEST(HallmarkWindows, RejectsMalformedTables) {
     expect_parse_error(
         row("ketone", "{C}", "10", "2.0", "6.0") + row("ketone", "{C}", "10", "2.0", "6.0"),
         "twice");
+    expect_parse_error("ketone\tC=O carbon\t{C}\t10\t0\t1.0\t2.0\t3.0\t4.0\t5.0\t6.0\t7.0\n",
+                       "molecules must");
+    expect_parse_error("ketone\tC=O carbon\t{C}\t10\t5\t8.0\t2.0\t3.0\t4.0\t5.0\t6.0\t7.0\n",
+                       "above");
 }
 
 TEST(HallmarkWindows, AcceptsAOnePointWindow) {
-    const auto windows =
-        parse_hallmark_windows("ketone\tC=O carbon\t{C}\t1\t6.0\t6.0\t6.0\t6.0\t6.0\t6.0\t6.0\n");
+    const auto windows = parse_hallmark_windows(
+        "ketone\tC=O carbon\t{C}\t1\t1\t6.0\t6.0\t6.0\t6.0\t6.0\t6.0\t6.0\n");
     ASSERT_TRUE(windows.ok()) << windows.error().message;
     EXPECT_EQ(windows.value()[0].low, windows.value()[0].high);
+}
+
+// ---- lab tables ------------------------------------------------------------------------
+
+std::vector<HallmarkWindow> lab(std::string_view text) {
+    const auto windows = arise::filter::parse_lab_windows(text);
+    EXPECT_TRUE(windows.ok()) << windows.error().message;
+    return windows.ok() ? windows.value() : std::vector<HallmarkWindow>{};
+}
+
+TEST(LabWindows, MinimalTableNeedsOnlyGroupAndShifts) {
+    const auto windows = lab("group,low_ppm,high_ppm\nketone,190,220\n");
+    ASSERT_EQ(windows.size(), 1U);
+    HallmarkWindow expected = window(Group::Ketone, "C=O carbon", CarbonTypeSet::all(), 190, 220);
+    expected.n = 0;
+    expected.molecules = 0;
+    expected.source = arise::filter::WindowSource::Lab;
+    EXPECT_EQ(windows[0], expected);
+}
+
+TEST(LabWindows, NamesAndDeptTypesIgnoreCase) {
+    const auto windows =
+        lab("group,dept,hallmark,low_ppm,high_ppm\nCarboxylic Ester,c ch,acyl C,160,180\n"
+            "PHENOL, C ,,140,170\n");
+    ASSERT_EQ(windows.size(), 2U);
+    EXPECT_EQ(windows[0].group, Group::CarboxylicEster);
+    EXPECT_EQ(windows[0].hallmark, "acyl C");
+    EXPECT_EQ(windows[0].types, (CarbonTypeSet{CarbonType::C, CarbonType::CH}));
+    EXPECT_EQ(windows[1].group, Group::Phenol);
+    EXPECT_EQ(windows[1].types, CarbonTypeSet{CarbonType::C});
+}
+
+TEST(LabWindows, BlankHallmarkNamesTheGroupsHallmarks) {
+    const auto windows = lab("group,low_ppm,high_ppm\ncarboxylic ester,50,180\nsulfonamide,0,10\n");
+    ASSERT_EQ(windows.size(), 2U);
+    EXPECT_EQ(windows[0].hallmark, "C=O carbon or O-C carbon");
+    EXPECT_EQ(windows[1].hallmark, "13C window");
+}
+
+void expect_lab_error(std::string_view text, ErrorCode code,
+                      const std::vector<std::string>& fragments) {
+    const auto windows = arise::filter::parse_lab_windows(text);
+    ASSERT_FALSE(windows.ok()) << "accepted: " << text;
+    EXPECT_EQ(windows.error().code, code);
+    for (const auto& fragment : fragments) {
+        EXPECT_NE(windows.error().message.find(fragment), std::string::npos)
+            << windows.error().message;
+    }
+}
+
+TEST(LabWindows, RejectsWhatTheChemistMustFix) {
+    expect_lab_error("group,low_ppm,high_ppm\n# note\nketones,190,220\n", ErrorCode::ParseError,
+                     {"line 3", "unknown group 'ketones'", "ketone", "thiophene ring"});
+    expect_lab_error("group,dept,low_ppm,high_ppm\nketone,CH4,190,220\n", ErrorCode::ParseError,
+                     {"line 2", "DEPT type 'CH4'"});
+    expect_lab_error("group,low_ppm,high_ppm\nketone,190,220\nKETONE,195,215\n",
+                     ErrorCode::ParseError, {"line 3", "ketone / C=O carbon", "twice"});
+    expect_lab_error("group,low_ppm,high_ppm\nketone,220,190\n", ErrorCode::OutOfRange, {"line 2"});
+    expect_lab_error("group,low_ppm\nketone,190\n", ErrorCode::ParseError, {"high_ppm"});
+}
+
+TEST(LabWindows, LabGroupsReplaceTheirBuiltInWindowsAndOthersAreKept) {
+    const std::vector built_in{
+        window(Group::Ketone, "C=O carbon", {CarbonType::C}, 170, 220),
+        window(Group::CarboxylicEster, "C=O carbon", {CarbonType::C}, 155, 180),
+        window(Group::CarboxylicEster, "O-C carbon (sp3)", {CarbonType::CH3}, 50, 105),
+        window(Group::Nitrile, "C#N carbon", {CarbonType::C}, 105, 125),
+    };
+    const std::vector lab_windows{
+        window(Group::Nitrile, "lab", {CarbonType::C}, 110, 122),
+        window(Group::CarboxylicEster, "lab ester", {CarbonType::C}, 160, 178),
+    };
+    const auto merged = arise::filter::merge_windows(built_in, lab_windows);
+    const std::vector expected{built_in[0], lab_windows[1], lab_windows[0]};
+    EXPECT_EQ(merged, expected);
+    EXPECT_EQ(arise::filter::merge_windows(built_in, {}), built_in);
+}
+
+TEST(LabWindows, TheTemplateReadsBackAsTheBuiltInWindows) {
+    // The template carries every built-in window's group, hallmark, types and bounds; only
+    // the measurement counts and the source differ once it is read as a lab table.
+    const auto built_in = arise::filter::measured_hallmark_windows();
+    ASSERT_TRUE(built_in.ok());
+    auto expected = built_in.value();
+    for (auto& w : expected) {
+        w.n = 0;
+        w.molecules = 0;
+        w.source = arise::filter::WindowSource::Lab;
+    }
+    const auto from_template = lab(arise::filter::lab_table_template());
+    EXPECT_EQ(from_template, expected);
+    // Uploading the unedited template keeps every window's bounds.
+    EXPECT_EQ(arise::filter::merge_windows(built_in.value(), from_template), from_template);
 }
 
 // ---- suggest_groups --------------------------------------------------------------------

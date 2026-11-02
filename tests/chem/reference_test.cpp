@@ -1374,7 +1374,7 @@ TEST(Reference, EveryOccurrenceHasItsHallmarksOnCarbon) {
 // ---- Measured hallmark shifts (M3b step 1) ---------------------------------------------
 
 TEST(Provenance, GroupShiftsAreRecomputedFromTheExtract) {
-    // tests/data/reference/group_shifts.tsv must be exactly what ARISE's key atoms measure
+    // data/group_shifts.tsv must be exactly what ARISE's key atoms measure
     // over the committed nmrshiftdb2 extract, so no number in it can be typed or stale.
 #ifdef __EMSCRIPTEN__
     GTEST_SKIP() << "measured offline; about 30 s natively, far slower under wasm checks";
