@@ -1,4 +1,4 @@
-// Development-only: writes tests/data/reference/group_shifts.tsv from the nmrshiftdb2
+// Development-only: writes data/group_shifts.tsv (shipped with the engine) from the nmrshiftdb2
 // extract. Usage: arise_measure_group_shifts <nmrshiftdb2_13c_all.tsv> > group_shifts.tsv
 #include "group_shifts.hpp"
 

@@ -7,7 +7,8 @@ add_library(arise_io
     peak_csv.cpp
     pubchem.cpp
     smiles_text.cpp
-    text_lines.cpp)
+    text_lines.cpp
+    window_csv.cpp)
 add_library(arise::io ALIAS arise_io)
 
 target_link_libraries(arise_io PUBLIC arise::core)

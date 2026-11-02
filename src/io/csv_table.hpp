@@ -15,17 +15,22 @@
 
 namespace arise::io::detail {
 
+/// What a column holds: a number (parsed with `parse_decimal`) or free text.
+enum class ColumnKind : std::uint8_t { Number, Text };
+
 /// One column a reader understands.
 struct ColumnSpec {
     std::string_view name;
     bool required;
+    ColumnKind kind = ColumnKind::Number;
 };
 
 /// Whether a table with a header but no data rows is valid.
 enum class EmptyTable : std::uint8_t { Reject, Allow };
 
 /// A data row. `values[i]` and `texts[i]` belong to `ColumnSpec` i and are empty when
-/// that optional column is absent from the file. Texts view the caller's input.
+/// that optional column is absent from the file (a text column has no value; an optional
+/// text field may also be blank). Texts view the caller's input.
 struct TableRow {
     std::size_t line;
     std::vector<std::optional<double>> values;
@@ -38,12 +43,14 @@ struct TableRow {
 /// - The first remaining line is the header; its names must be known columns, without
 ///   duplicates, and must include every required column.
 /// - Each data row has one field per header column; fields are trimmed of spaces and
-///   tabs, unquoted, and parsed with `parse_decimal`.
-/// - At least one data row, unless `empty` is EmptyTable::Allow.
+///   tabs and unquoted. Number fields are parsed with `parse_decimal`; text fields are
+///   kept as written. Only optional text fields may be blank.
+/// - At least one data row, unless `empty` is EmptyTable::Allow; the error calls the
+///   rows `rows_name` ("no peaks after the header").
 /// Errors are ParseError and name the 1-based physical line.
 [[nodiscard]] core::Result<std::vector<TableRow>> read_numeric_table(
     std::string_view text, std::span<const ColumnSpec> columns,
-    EmptyTable empty = EmptyTable::Reject);
+    EmptyTable empty = EmptyTable::Reject, std::string_view rows_name = "peaks");
 
 /// A plausibility window for one nucleus, with a hint for values outside it.
 struct ShiftWindow {

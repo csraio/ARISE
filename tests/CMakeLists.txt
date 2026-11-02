@@ -51,7 +51,7 @@ arise_embed_chunks("${PROJECT_SOURCE_DIR}/docs/chem_group_definitions.md"
                    ARISE_GROUP_DEFINITIONS_CHUNKS ARISE_GROUP_DEFINITIONS_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/nmrshiftdb2_13c_all.tsv"
                    ARISE_NMRSHIFTDB_ALL_CHUNKS ARISE_NMRSHIFTDB_ALL_CHUNK_COUNT)
-arise_embed_chunks("${ARISE_REFERENCE_DIR}/group_shifts.tsv"
+arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/group_shifts.tsv"
                    ARISE_GROUP_SHIFTS_CHUNKS ARISE_GROUP_SHIFTS_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/pubchem_cleaning_oracle.tsv"
                    ARISE_CLEANING_ORACLE_CHUNKS ARISE_CLEANING_ORACLE_CHUNK_COUNT)
@@ -72,11 +72,11 @@ foreach(search ${ARISE_PUBCHEM_SEARCHES})
          "${ARISE_PUBCHEM_SEARCHES_CHUNK_COUNT} + ${count} + 1")
 endforeach()
 
-# The hand-written chem tests, so a test can require RDKit's view of every SMILES in them.
+# The hand-written tests, so a test can require RDKit's view of every SMILES in them.
 set(ARISE_SPEC_SOURCES_CHUNKS "")
 set(ARISE_SPEC_SOURCES_CHUNK_COUNT 0)
-foreach(source molecule_test.cpp perception_test.cpp)
-    arise_embed_chunks("${CMAKE_CURRENT_SOURCE_DIR}/chem/${source}" chunks count)
+foreach(source chem/molecule_test.cpp chem/perception_test.cpp filter/groups_test.cpp)
+    arise_embed_chunks("${CMAKE_CURRENT_SOURCE_DIR}/${source}" chunks count)
     string(APPEND ARISE_SPEC_SOURCES_CHUNKS "${chunks}")
     math(EXPR ARISE_SPEC_SOURCES_CHUNK_COUNT "${ARISE_SPEC_SOURCES_CHUNK_COUNT} + ${count}")
 endforeach()
@@ -89,3 +89,4 @@ add_subdirectory(core)
 add_subdirectory(io)
 add_subdirectory(nmr1d)
 add_subdirectory(chem)
+add_subdirectory(filter)

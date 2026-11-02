@@ -908,6 +908,9 @@ std::string_view source_label(std::string_view source) {
     if (source == "valence") {
         return "valence probes";
     }
+    if (source == "holdout") {
+        return "hold-out";
+    }
     return source == "pubchem" ? std::string_view{"PubChem"} : source;
 }
 
@@ -1072,13 +1075,13 @@ std::string spec_line_problem(std::string_view line, const std::vector<std::stri
     return std::string{entry.smiles} + ": differs in " + problem;
 }
 
-// The SMILES literals passed to the spec helpers in the hand-written chem tests (the same
-// helpers as SPEC_HELPERS in the builder).
+// The SMILES literals passed to the spec helpers in the hand-written chem and filter tests
+// (the same helpers as SPEC_HELPERS in the builder).
 std::set<std::string> spec_literals() {
     static constexpr std::array kHelpers{
         "parse_smiles(\"",       "parse_ok(\"",    "parse(\"",
         "expect_error(\"",       "groups(\"",      "environments(\"",
-        "carbon_class_sizes(\"", "topological(\"",
+        "carbon_class_sizes(\"", "topological(\"", "verdict(\"",
     };
     const auto sources = arise::test::join_chunks(arise::test::kSpecSourcesChunks);
     std::set<std::string> literals;
@@ -1371,7 +1374,7 @@ TEST(Reference, EveryOccurrenceHasItsHallmarksOnCarbon) {
 // ---- Measured hallmark shifts (M3b step 1) ---------------------------------------------
 
 TEST(Provenance, GroupShiftsAreRecomputedFromTheExtract) {
-    // tests/data/reference/group_shifts.tsv must be exactly what ARISE's key atoms measure
+    // data/group_shifts.tsv must be exactly what ARISE's key atoms measure
     // over the committed nmrshiftdb2 extract, so no number in it can be typed or stale.
 #ifdef __EMSCRIPTEN__
     GTEST_SKIP() << "measured offline; about 30 s natively, far slower under wasm checks";

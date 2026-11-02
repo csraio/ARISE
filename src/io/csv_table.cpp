@@ -80,17 +80,23 @@ core::Result<Layout> parse_header(const Line& header, std::span<const ColumnSpec
     return layout;
 }
 
-core::Result<double> parse_field(const Line& line, std::string_view column,
-                                 std::string_view field) {
-    if (field.empty()) {
+// Checks a field's text: present unless optional text, and never quoted.
+core::Result<void> check_field(const Line& line, const ColumnSpec& column, std::string_view field) {
+    if (field.empty() && (column.required || column.kind == ColumnKind::Number)) {
         return error_at(core::ErrorCode::ParseError, line.number,
-                        "empty " + std::string{column} + " field");
+                        "empty " + std::string{column.name} + " field");
     }
     if (field.find('"') != std::string_view::npos) {
-        return error_at(
-            core::ErrorCode::ParseError, line.number,
-            std::string{column} + " field " + quoted(field) + ": quoted fields are not supported");
+        return error_at(core::ErrorCode::ParseError, line.number,
+                        std::string{column.name} + " field " + quoted(field) +
+                            ": quoted fields are not supported");
     }
+    return {};
+}
+
+// A number field, already checked by check_field.
+core::Result<double> parse_field(const Line& line, std::string_view column,
+                                 std::string_view field) {
     auto value = parse_decimal(field);
     if (!value.ok()) {
         return error_at(core::ErrorCode::ParseError, line.number,
@@ -119,12 +125,18 @@ core::Result<TableRow> parse_row(const Line& line, const Layout& layout,
             continue;
         }
         const auto text = fields[*position];
+        if (auto check = check_field(line, columns[i], text); !check.ok()) {
+            return std::move(check).error();
+        }
+        row.texts[i] = text;
+        if (columns[i].kind == ColumnKind::Text) {
+            continue;
+        }
         auto value = parse_field(line, columns[i].name, text);
         if (!value.ok()) {
             return std::move(value).error();
         }
         row.values[i] = value.value();
-        row.texts[i] = text;
     }
     return row;
 }
@@ -156,7 +168,8 @@ core::Result<core::Ppm> shift_in_window(const TableRow& row, std::size_t column,
 
 core::Result<std::vector<TableRow>> read_numeric_table(std::string_view text,
                                                        std::span<const ColumnSpec> columns,
-                                                       EmptyTable empty) {
+                                                       EmptyTable empty,
+                                                       std::string_view rows_name) {
     const auto lines = content_lines(text);
     if (lines.empty()) {
         return core::Error{
@@ -181,7 +194,7 @@ core::Result<std::vector<TableRow>> read_numeric_table(std::string_view text,
     }
     if (rows.empty() && empty == EmptyTable::Reject) {
         return error_at(core::ErrorCode::ParseError, lines.front().number,
-                        "no peaks after the header");
+                        "no " + std::string{rows_name} + " after the header");
     }
     return rows;
 }

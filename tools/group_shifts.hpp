@@ -31,7 +31,9 @@ struct ShiftRecord {
 struct HallmarkShifts {
     chem::Group group = chem::Group::CarboxylicAcid;
     std::string hallmark;
-    std::size_t n = 0;  // carbons (each key atom of each record once)
+    nmr1d::CarbonTypeSet types;  // DEPT types of the measured carbons (from their structures)
+    std::size_t n = 0;           // carbons (each key atom of each record once)
+    std::size_t molecules = 0;   // distinct nmrshiftdb2 IDs among them
     double min = 0;
     double p1 = 0;  // percentiles as Python statistics.quantiles(n=100, method="inclusive")
     double p5 = 0;
@@ -40,6 +42,18 @@ struct HallmarkShifts {
     double p99 = 0;
     double max = 0;
 };
+
+/// One carbon carrying a hallmark of a group the molecule contains.
+struct KeyCarbon {
+    std::size_t group_index = 0;  // into chem::kAllGroups
+    std::string hallmark;         // with " (sp3)" / " (unsaturated)" where split
+    std::size_t atom = 0;
+};
+
+/// Every group's hallmark carbons in `molecule` (each carbon once per group and hallmark),
+/// by group, hallmark, then atom. The O-C and N-C hallmarks (ester, ether, amine) are named
+/// separately for sp3 and for unsaturated (aromatic, vinyl) carbons.
+[[nodiscard]] std::vector<KeyCarbon> key_carbons(const chem::Molecule& molecule);
 
 /// Every group's hallmarks measured over the records with even IDs (the odd half is the
 /// hold-out for checking suggestions). Groups without carbon hallmarks are left out, and so
@@ -50,7 +64,8 @@ struct HallmarkShifts {
 /// The provenance header of group_shifts.tsv (comment lines).
 [[nodiscard]] std::string_view group_shifts_header();
 
-/// TSV rows: group, hallmark, n, min, p1, p5, median, p95, p99, max (one decimal).
+/// TSV rows: group, hallmark, types ("{C, CH}"), n, molecules, min, p1, p5, median, p95, p99, max
+/// (one decimal).
 [[nodiscard]] std::string to_tsv(const std::vector<HallmarkShifts>& measurements);
 
 }  // namespace arise::tools

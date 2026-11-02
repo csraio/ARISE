@@ -100,6 +100,10 @@ TEST(CarbonTypeSet, BasicSetOperations) {
     static_assert(kChOrCh3.contains(CarbonType::CH3) && !kChOrCh3.contains(CarbonType::CH2));
     static_assert((kChOrCh3 & CarbonTypeSet{CarbonType::CH}) == CarbonTypeSet{CarbonType::CH});
     static_assert((kChOrCh3 & CarbonTypeSet{CarbonType::CH2}).empty());
+    static_assert((CarbonTypeSet{CarbonType::CH} | CarbonTypeSet{CarbonType::CH3}) == kChOrCh3);
+    static_assert((kChOrCh3 | kEmpty) == kChOrCh3);
+    static_assert((kChOrCh3 | CarbonTypeSet{CarbonType::C, CarbonType::CH2}) ==
+                  CarbonTypeSet::all());
     EXPECT_EQ(kChOrCh3.size(), 2);
 }
 
