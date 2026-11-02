@@ -22,7 +22,7 @@ fi
 
 cd "$repo_root"
 # Tracked plus new (untracked, not ignored) files, so new code is checked before `git add`.
-files=$(git ls-files --cached --others --exclude-standard 'src/*.cpp' 'tests/*.cpp' 'apps/*.cpp')
+files=$(git ls-files --cached --others --exclude-standard 'src/*.cpp' 'tests/*.cpp' 'apps/*.cpp' 'tools/*.cpp')
 if [ -z "$files" ]; then
     echo "run_clang_tidy: no source files."
     exit 0

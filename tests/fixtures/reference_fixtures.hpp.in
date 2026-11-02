@@ -80,6 +80,15 @@ inline constexpr std::array<std::string_view, @ARISE_PUBCHEM_SEARCHES_CHUNK_COUN
     kPubchemSearchesChunks{
 @ARISE_PUBCHEM_SEARCHES_CHUNKS@};
 
+// Every in-scope assigned nmrshiftdb2 13C record (nmrshiftdb2 Database License), and the
+// group hallmark shifts measured from it by tools/measure_group_shifts.
+inline constexpr std::array<std::string_view, @ARISE_NMRSHIFTDB_ALL_CHUNK_COUNT@>
+    kNmrshiftdbAllChunks{
+@ARISE_NMRSHIFTDB_ALL_CHUNKS@};
+inline constexpr std::array<std::string_view, @ARISE_GROUP_SHIFTS_CHUNK_COUNT@>
+    kGroupShiftsChunks{
+@ARISE_GROUP_SHIFTS_CHUNKS@};
+
 template <std::size_t N>
 std::string join_chunks(const std::array<std::string_view, N>& chunks) {
     std::string text;

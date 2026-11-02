@@ -33,5 +33,6 @@ add_subdirectory(src)
 
 if(ARISE_BUILD_TESTS)
     enable_testing()
+    add_subdirectory(tools)  # development-only measurement tools, never shipped
     add_subdirectory(tests)
 endif()

@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <string_view>
 #include <vector>
 
@@ -119,8 +120,24 @@ inline constexpr std::array kAllGroups{
 /// "carboxylic acid", "aldehyde", ...
 [[nodiscard]] std::string_view to_string(Group group) noexcept;
 
+/// The atoms carrying each NMR hallmark of `group`, as named in the "Key atom" column of
+/// docs/chem_group_definitions.md: "C=O carbon"; an ester also "O-C carbon"; "C-OH
+/// carbon", "ring carbons", ... Empty for groups whose hallmark is not on carbon
+/// (sulfonamide, hydrazine, hydroxylamine).
+[[nodiscard]] std::span<const std::string_view> hallmarks(Group group) noexcept;
+
+/// One occurrence of a group (one unit of count_group) and, per hallmark of
+/// hallmarks(group), the atoms carrying it, in ascending order (e.g. a ketone: {{the C=O
+/// carbon}}; an ester: {{C=O carbon}, {O-C carbon}}; a benzene ring: {{its six carbons}}).
+struct GroupOccurrence {
+    std::vector<std::vector<std::size_t>> key_atoms;
+};
+
+/// Every occurrence of `group`, with its key atoms.
+[[nodiscard]] std::vector<GroupOccurrence> find_group(const Molecule& molecule, Group group);
+
 /// How many times `group` occurs in the molecule (per carbonyl carbon, per OH, per C=C,
-/// per ring, ...).
+/// per ring, ...): find_group(molecule, group).size().
 [[nodiscard]] int count_group(const Molecule& molecule, Group group);
 
 }  // namespace arise::chem

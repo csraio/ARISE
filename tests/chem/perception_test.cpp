@@ -546,6 +546,35 @@ TEST(Groups, ChargeSeparatedFormsCountByTheirNeutralParent) {
     EXPECT_EQ(groups("C1=CC=[N+](C=C1)[O-]", Group::PyridineRing), 1);  // pyridine N-oxide
 }
 
+// The key atoms of each occurrence, per hallmark (checked against RDKit's fragment
+// patterns by Reference.KeyAtomsMatchRdkitFragmentPatterns).
+std::vector<std::vector<std::vector<std::size_t>>> key_atoms(std::string_view smiles, Group group) {
+    std::vector<std::vector<std::vector<std::size_t>>> result;
+    for (const auto& occurrence : arise::chem::find_group(parse_ok(smiles), group)) {
+        result.push_back(occurrence.key_atoms);
+    }
+    return result;
+}
+
+using Keys = std::vector<std::vector<std::vector<std::size_t>>>;
+
+TEST(Groups, KeyAtomsCarryEachHallmark) {
+    // Ethyl acetate: C=O carbon 3, O-C carbon 1.
+    EXPECT_EQ(key_atoms("CCOC(C)=O", Group::CarboxylicEster), (Keys{{{3}, {1}}}));
+    EXPECT_EQ(key_atoms("CC(=O)OC(C)=O", Group::CarboxylicAnhydride), (Keys{{{1, 4}}}));
+    EXPECT_EQ(key_atoms("CCO", Group::Alcohol), (Keys{{{1}}}));
+    EXPECT_EQ(key_atoms("COC", Group::Ether), (Keys{{{0, 2}}}));
+    EXPECT_EQ(key_atoms("CCN(C)C", Group::Amine), (Keys{{{1, 3, 4}}}));
+    EXPECT_EQ(key_atoms("CC#N", Group::Nitrile), (Keys{{{1}}}));
+    EXPECT_EQ(key_atoms("CC=C", Group::Alkene), (Keys{{{1, 2}}}));
+    EXPECT_EQ(key_atoms("C1=CC=NC=C1", Group::PyridineRing), (Keys{{{0, 1, 2, 4, 5}}}));
+    EXPECT_EQ(key_atoms("O=C1C=CC=CN1", Group::Pyridone), (Keys{{{1}}}));
+    // A sulfonamide's hallmark is not on carbon: one occurrence, no key atoms.
+    EXPECT_EQ(key_atoms("CS(N)(=O)=O", Group::Sulfonamide), (Keys{{}}));
+    EXPECT_TRUE(arise::chem::hallmarks(Group::Sulfonamide).empty());
+    EXPECT_EQ(arise::chem::hallmarks(Group::CarboxylicEster).size(), 2U);
+}
+
 TEST(Groups, NamesAreReadable) {
     std::set<std::string_view> names;
     for (const auto group : arise::chem::kAllGroups) {
