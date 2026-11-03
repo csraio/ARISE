@@ -90,6 +90,15 @@ inline constexpr std::array<std::string_view, @ARISE_GROUP_SHIFTS_CHUNK_COUNT@>
     kGroupShiftsChunks{
 @ARISE_GROUP_SHIFTS_CHUNKS@};
 
+// The residual-solvent and water 1H peaks (data/solvent_peaks.tsv) and every value the
+// three published tables give for them (scripts/build_solvent_peaks.py).
+inline constexpr std::array<std::string_view, @ARISE_SOLVENT_PEAKS_CHUNK_COUNT@>
+    kSolventPeaksChunks{
+@ARISE_SOLVENT_PEAKS_CHUNKS@};
+inline constexpr std::array<std::string_view, @ARISE_SOLVENT_SOURCES_CHUNK_COUNT@>
+    kSolventSourcesChunks{
+@ARISE_SOLVENT_SOURCES_CHUNKS@};
+
 template <std::size_t N>
 std::string join_chunks(const std::array<std::string_view, N>& chunks) {
     std::string text;
