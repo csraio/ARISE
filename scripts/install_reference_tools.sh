@@ -1,6 +1,7 @@
 #!/bin/sh
 # Installs the pinned reference-data tools (scripts/reference-requirements.txt: RDKit,
-# numpy, Pillow) into a private Python 3.13 venv. Dev-time only: ARISE never needs them.
+# numpy, Pillow, pdfminer.six and its requirements) into a private Python 3.13 venv.
+# Dev-time only: ARISE never needs them.
 #   ARISE_REFERENCE_PYTHON  a Python 3.13 interpreter
 #                           (default: the one install_emsdk.sh bootstrapped on macOS,
 #                            else python3.13 on PATH)
@@ -38,3 +39,4 @@ rdkit_version=$("$venv/bin/python" -c 'import rdkit; print(rdkit.__version__)')
 echo "install_reference_tools: RDKit $rdkit_version"
 echo "install_reference_tools: done. Build the reference data with:"
 echo "    $venv/bin/python scripts/build_reference_sets.py"
+echo "    $venv/bin/python scripts/build_solvent_peaks.py"
