@@ -99,6 +99,16 @@ inline constexpr std::array<std::string_view, @ARISE_SOLVENT_SOURCES_CHUNK_COUNT
     kSolventSourcesChunks{
 @ARISE_SOLVENT_SOURCES_CHUNKS@};
 
+// Experimental 1H, 13C, DEPT and HSQC peak lists of BMRB metabolomics samples, with each
+// entry's structure; read with bmrb_cases.hpp. Contains data from the Biological Magnetic
+// Resonance Data Bank (https://bmrb.io); see tests/data/reference/BMRB_NOTICE.md.
+inline constexpr std::array<std::string_view, @ARISE_BMRB_CASES_CHUNK_COUNT@> kBmrbCasesChunks{
+@ARISE_BMRB_CASES_CHUNKS@};
+inline constexpr std::array<std::string_view, @ARISE_BMRB_PEAKS_CHUNK_COUNT@> kBmrbPeaksChunks{
+@ARISE_BMRB_PEAKS_CHUNKS@};
+inline constexpr std::array<std::string_view, @ARISE_BMRB_NOTICE_CHUNK_COUNT@> kBmrbNoticeChunks{
+@ARISE_BMRB_NOTICE_CHUNKS@};
+
 template <std::size_t N>
 std::string join_chunks(const std::array<std::string_view, N>& chunks) {
     std::string text;

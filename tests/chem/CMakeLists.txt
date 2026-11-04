@@ -1,4 +1,5 @@
 add_executable(arise_chem_tests
+    bmrb_test.cpp
     molecule_test.cpp
     perception_test.cpp
     reference_test.cpp)
