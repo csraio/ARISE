@@ -217,6 +217,7 @@ files):
 | formate | 1 | chem tests | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
 | mixture | 1 | chem tests | ARISE reads one molecule; '.' is a ParseError (molecule.hpp) |
 | unsupported-element | 1 | chem tests | outside ARISE's elements (molecule.hpp) |
+| bmrb-assignment | 1 | BMRB | BMRB assigns 1H peaks that have HSQC cross peaks to H on O or N (guanosine, bmse000091); an assignment error in the entry |
 | hypervalent-charged | 68 | valence probes | RDKit's valence lists for charged Cl, Br, I, P and Si (3-6 bonds on Cl+/Br+, ate complexes of I-, P-, Si-, P+ with 6 bonds) differ from ARISE's charge-shifted normal valences |
 
 **Gaps these checks exposed** (no group today; add one if it matters): OH on a

@@ -343,6 +343,8 @@ def peaks(frame, heavy_of, kind):
     for peak_id, by_dim in shift.items():
         if kind == "DEPT135" and phase.get(peak_id) not in ("positive", "negative"):
             return None
+        if kind == "HSQC" and not ("H" in by_dim and "C" in by_dim):
+            return None  # a cross peak needs both shifts
         rows.append((by_dim.get("H", "-"), by_dim.get("C", "-"), phase.get(peak_id, "-"),
                      integral.get(peak_id, "-"), atoms[peak_id]["H"], atoms[peak_id]["C"]))
     return sorted(rows, key=lambda r: [float(v) if v != "-" else 0.0 for v in r[:2]])

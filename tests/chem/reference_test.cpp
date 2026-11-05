@@ -911,6 +911,9 @@ std::string_view source_label(std::string_view source) {
     if (source == "holdout") {
         return "hold-out";
     }
+    if (source == "bmrb") {
+        return "BMRB";
+    }
     return source == "pubchem" ? std::string_view{"PubChem"} : source;
 }
 

@@ -39,10 +39,12 @@ Licensed under Apache-2.0 (`LICENSE`); third-party data keeps its own terms (`NO
 
 Modules (namespace `arise::<module>`), dependencies point downward only:
 `core` (types, units, Result) → `io` (CSV, packed binary formats)
-→ `nmr1d` (1D spectral interpretation, e.g. DEPT) → `chem` (in-house SMILES reader,
-molecule graph) → `filter` (DEPT counts, symmetry, functional groups)
-→ `predict` (HOSE baseline) → `aniso` (conformers, ring currents)
-→ `nmr2d` (HSQC/HMBC scoring) → `pipeline` → `apps/*`.
+→ `nmr1d` (1D spectral interpretation, e.g. DEPT, solvents)
+→ {`hsqc` (1H↔HSQC matching, exchangeable protons), `hmbc` (planned)} — siblings,
+neither depends on the other → `chem` (in-house SMILES reader, molecule graph)
+→ `filter` (DEPT counts, symmetry, functional groups; candidate-vs-spectrum checks)
+→ `predict` (HOSE baseline) → `aniso` (conformers, ring currents) → `pipeline`
+→ `apps/*`. See `docs/adr/0003-hsqc-hmbc-modules.md`.
 
 ## Build & test
     git config core.hooksPath .githooks      # once per clone
