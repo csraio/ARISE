@@ -54,7 +54,7 @@ molecule graph) → `filter` (DEPT counts, symmetry, functional groups)
     . ~/.local/share/emsdk/emsdk_env.sh      # per shell, then the wasm preset:
     cmake --preset wasm && cmake --build --preset wasm && ctest --preset wasm
 The wasm preset runs the tests under Node with UBSan, SAFE_HEAP, ASSERTIONS=2 and
-stack-overflow checks. CI runs dev, asan and release on Linux x86_64 and arm64, plus wasm.
+stack-overflow checks. CI runs dev, asan and release on Linux x86_64, dev and release on arm64, plus wasm.
 macOS (Apple clang) is not in CI: run the dev, asan and release presets locally before
 opening a PR. Apple silicon is not a target; wasm is the cross-platform build.
 
@@ -124,9 +124,10 @@ opening a PR. Apple silicon is not a target; wasm is the cross-platform build.
 - Never commit build output, data dumps or secrets. Never bypass hooks.
 - Significant design choices get a short ADR in `docs/adr/`.
 - CI (`.github/workflows/ci.yml`) runs on pull requests only (plus manual dispatch):
-  Linux x86_64 and arm64 `dev`, `asan`, `release`, plus wasm, lint and the commit-gate
-  self-test. No run on push to `main`: PRs must be up to date with `main` to merge, so
-  the PR run already tested the merged tree. `main` only takes changes through green PRs.
+  Linux x86_64 `dev`, `asan`, `release` and arm64 `dev`, `release`, plus wasm, lint
+  and the commit-gate self-test. No run on push to `main`: PRs must be up to date with
+  `main` to merge, so the PR run already tested the merged tree. `main` only takes
+  changes through green PRs.
 
 ## Safe experiments & shell hygiene
 Lessons from a real incident: a deliberately broken test was "reverted" with
