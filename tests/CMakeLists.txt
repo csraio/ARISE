@@ -57,6 +57,12 @@ arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/solvent_peaks.tsv"
                    ARISE_SOLVENT_PEAKS_CHUNKS ARISE_SOLVENT_PEAKS_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/solvent_sources.tsv"
                    ARISE_SOLVENT_SOURCES_CHUNKS ARISE_SOLVENT_SOURCES_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/bmrb_cases.tsv"
+                   ARISE_BMRB_CASES_CHUNKS ARISE_BMRB_CASES_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/bmrb_peaks.tsv"
+                   ARISE_BMRB_PEAKS_CHUNKS ARISE_BMRB_PEAKS_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/BMRB_NOTICE.md"
+                   ARISE_BMRB_NOTICE_CHUNKS ARISE_BMRB_NOTICE_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/pubchem_cleaning_oracle.tsv"
                    ARISE_CLEANING_ORACLE_CHUNKS ARISE_CLEANING_ORACLE_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/named_compounds.tsv"
@@ -87,7 +93,8 @@ endforeach()
 configure_file(fixtures/reference_fixtures.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/fixtures/reference_fixtures.hpp" @ONLY)
 add_library(arise_test_fixtures INTERFACE)
-target_include_directories(arise_test_fixtures INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/fixtures")
+target_include_directories(arise_test_fixtures
+    INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/fixtures" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
 add_subdirectory(core)
 add_subdirectory(io)

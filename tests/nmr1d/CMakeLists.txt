@@ -1,4 +1,5 @@
 add_executable(arise_nmr1d_tests
+    bmrb_test.cpp
     dept_test.cpp
     solvent_test.cpp)
 
