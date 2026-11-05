@@ -15,6 +15,8 @@ jobs:
   build-test:
     name: ${{ matrix.os }} / ${{ matrix.preset }}
     runs-on: ${{ matrix.os }}
+    # Caps a hung or pathologically slow job; the slowest (x86 asan) takes ~12 min.
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -25,6 +27,12 @@ jobs:
         os: [ubuntu-24.04, ubuntu-24.04-arm]
         # release: optimizers expose bugs Debug hides (e.g. FMA contraction on arm64).
         preset: [dev, asan, release]
+        # ASan on arm64 ran ~100x slower than on x86 with the same GCC 13.3 (PR #22: 431 s
+        # against 3.6 s for one test; the job never finished). x86 asan covers memory errors;
+        # arm64 is here for dev and release.
+        exclude:
+          - os: ubuntu-24.04-arm
+            preset: asan
     steps:
       - uses: actions/checkout@v4
 
@@ -49,6 +57,7 @@ jobs:
   wasm:
     name: wasm (Emscripten + Node)
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -74,6 +83,7 @@ jobs:
   lint:
     name: format + clang-tidy
     runs-on: ubuntu-24.04
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -97,6 +107,7 @@ jobs:
   commit-gate:
     name: commit gate self-test
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
