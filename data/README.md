@@ -17,4 +17,4 @@
 `group_shifts.tsv` contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is
 made available here under the nmrshiftdb2 Database License (`NMRSHIFTDB2_LICENSE.txt`).
 Clause 4.5 of that licence requires software that relies on this data to be released under
-an OSI-approved open-source licence; ARISE will be (user decision 2026-11-02).
+an OSI-approved open-source licence; ARISE is released under Apache-2.0 (`LICENSE`).

@@ -7,7 +7,8 @@ survivors get shift prediction (HOSE baseline + 3D ring-current/anisotropy
 correction) and optional HSQC/HMBC scoring.
 Two deliverables: the portable C++ engine (native CLI and WebAssembly) and a static
 web client (JavaScript UI). Design: `docs/adr/0002-expert-pipeline-pubchem-web.md`;
-original proposal `docs/ARISE_Project_Proposal.pdf` (partly superseded by ADR 0002).
+the original proposal (no longer in the repository) is partly superseded by ADR 0002.
+Licensed under Apache-2.0 (`LICENSE`); third-party data keeps its own terms (`NOTICE`).
 
 ## Golden rules
 1. The engine (`include/`, `src/`) is idiomatic, portable C++20. It must compile
@@ -53,7 +54,9 @@ molecule graph) → `filter` (DEPT counts, symmetry, functional groups)
     . ~/.local/share/emsdk/emsdk_env.sh      # per shell, then the wasm preset:
     cmake --preset wasm && cmake --build --preset wasm && ctest --preset wasm
 The wasm preset runs the tests under Node with UBSan, SAFE_HEAP, ASSERTIONS=2 and
-stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wasm.
+stack-overflow checks. CI runs dev, asan and release on Linux x86_64 and arm64, plus wasm.
+macOS (Apple clang) is not in CI: run the dev, asan and release presets locally before
+opening a PR. Apple silicon is not a target; wasm is the cross-platform build.
 
 ## C++ conventions
 - C++20, no compiler extensions. Allowed: concepts, `std::span`, `<bit>`,
@@ -120,9 +123,10 @@ stack-overflow checks. CI runs dev, asan and release on Linux and macOS, plus wa
   (`feat(aniso): add Johnson–Bovey ring current`).
 - Never commit build output, data dumps or secrets. Never bypass hooks.
 - Significant design choices get a short ADR in `docs/adr/`.
-- CI (`.github/workflows/ci.yml`) builds and tests every push and PR on Linux and
-  macOS (`dev`, `asan`, `release`), plus wasm, lint and the commit-gate self-test.
-  `main` only takes changes through green PRs.
+- CI (`.github/workflows/ci.yml`) runs on pull requests only (plus manual dispatch):
+  Linux x86_64 and arm64 `dev`, `asan`, `release`, plus wasm, lint and the commit-gate
+  self-test. No run on push to `main`: PRs must be up to date with `main` to merge, so
+  the PR run already tested the merged tree. `main` only takes changes through green PRs.
 
 ## Safe experiments & shell hygiene
 Lessons from a real incident: a deliberately broken test was "reverted" with

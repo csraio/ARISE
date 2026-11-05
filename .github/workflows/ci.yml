@@ -1,9 +1,11 @@
 name: CI
 
+# Pull requests only: main takes changes only through PRs, and branch protection requires
+# a PR to be up to date with main before merging, so the merged tree is exactly the one
+# the PR run tested. A push run on main would repeat that run. Run by hand if ever needed.
 on:
-  push:
-    branches: [main]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -16,21 +18,18 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Pinned images, not *-latest, so the compiler only changes on purpose.
-        # macos-14 is retired on 2026-11-02 (actions/runner-images#13518).
-        os: [ubuntu-24.04, macos-15]
-        # release: optimizers expose bugs Debug hides (e.g. FMA contraction on arm64 macOS).
+        # Pinned images, not *-latest, so the compiler only changes on purpose. The arm64
+        # image (free for public repos) keeps a non-x86 target in CI: it is where FMA
+        # contraction would change last bits if -ffp-contract=off were ever lost. macOS
+        # (Apple clang) is built and tested locally by the developer, not in CI.
+        os: [ubuntu-24.04, ubuntu-24.04-arm]
+        # release: optimizers expose bugs Debug hides (e.g. FMA contraction on arm64).
         preset: [dev, asan, release]
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Ninja (Linux)
-        if: runner.os == 'Linux'
+      - name: Install Ninja
         run: sudo apt-get update && sudo apt-get install -y ninja-build
-
-      - name: Install Ninja (macOS)
-        if: runner.os == 'macOS'
-        run: brew list ninja || brew install ninja
 
       - name: Cache fetched dependencies
         uses: actions/cache@v4
