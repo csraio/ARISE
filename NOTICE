@@ -1,0 +1,18 @@
+ARISE — Anisotropy-Resolved Isomer Scoring Engine
+Copyright 2026 The ARISE authors
+
+The ARISE source code is licensed under the Apache License, Version 2.0 (LICENSE).
+
+Data in this repository from third parties keeps its own terms, recorded beside it:
+
+- data/group_shifts.tsv, tests/data/reference/nmrshiftdb2_*.tsv and the nmrshiftdb2 rows of
+  tests/data/reference/chebi_classes.tsv contain information from nmrshiftdb2
+  (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License
+  (data/NMRSHIFTDB2_LICENSE.txt, tests/data/reference/NMRSHIFTDB2_LICENSE.txt).
+- tests/data/reference/chebi_classes.tsv is derived from ChEBI (www.ebi.ac.uk/chebi),
+  licensed under CC BY 4.0.
+- tests/data/reference/bmrb_*.tsv come from the Biological Magnetic Resonance Data Bank
+  (bmrb.io); see tests/data/reference/BMRB_NOTICE.md.
+- tests/data/pubchem_*.csv and tests/data/reference/pubchem_*.tsv come from PubChem
+  (pubchem.ncbi.nlm.nih.gov), NCBI.
+- data/solvent_peaks.tsv holds shift values from published tables, cited in data/README.md.
