@@ -6,6 +6,7 @@
 # InChIKey). Both were taken from PubChem; scripts/build_reference_sets.py re-checks them.
 # Source holdout: a suggestion window that covers fewer hold-out carbons than its pass
 # mark (tests/filter/holdout_test.cpp; molecule = group, check = hallmark).
+# Source bmrb: a BMRB entry whose assignments contradict its own spectra (tests/hsqc/bmrb_test.cpp; molecule = entry:sample).
 chebi	53360	30879	chebi-error: ChEBI asserts a group whose atoms the structure lacks (annotation error)
 chebi	133036	32952	chebi-error: ChEBI asserts a group whose atoms the structure lacks (annotation error)
 chebi	31175	46722	chebi-error: ChEBI asserts a group whose atoms the structure lacks (annotation error)
@@ -230,3 +231,4 @@ valence	[SiH4-](CC[N+](C)(C)C)	accept	hypervalent-charged: RDKit's valence lists
 spec	C(C[NH3+])C[O-]	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
 spec	CCC(=[O+][O-])C	fr_ketone	carbonyl-oxide: C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O
 spec	C[N+](C)(CC)CC([O-])C	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
+bmrb	bmse000091:1	exchangeable	bmrb-assignment: BMRB assigns 1H peaks that have HSQC cross peaks (4.27, 4.40, 5.87 and 7.85 ppm) to H on O or N; an assignment error in the entry
