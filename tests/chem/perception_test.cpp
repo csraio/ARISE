@@ -603,11 +603,12 @@ TEST(ExchangeableHydrogens, CountsHydrogenOnOxygen) {
 }
 
 TEST(ExchangeableHydrogens, CountsHydrogenOnNitrogenSulfurAndSelenium) {
-    EXPECT_EQ(exchangeable("NCC(=O)O"), 3);  // glycine: NH2 and OH
-    EXPECT_EQ(exchangeable("CNC"), 1);       // dimethylamine
-    EXPECT_EQ(exchangeable("NC=O"), 2);      // formamide
-    EXPECT_EQ(exchangeable("CS"), 1);        // methanethiol
-    EXPECT_EQ(exchangeable("C[SeH]"), 1);    // methaneselenol
+    EXPECT_EQ(exchangeable("NCC(=O)O"), 3);      // glycine: NH2 and OH
+    EXPECT_EQ(exchangeable("NC(CO)C(=O)O"), 4);  // serine: NH2, CH2-OH and COOH
+    EXPECT_EQ(exchangeable("CNC"), 1);           // dimethylamine
+    EXPECT_EQ(exchangeable("NC=O"), 2);          // formamide
+    EXPECT_EQ(exchangeable("CS"), 1);            // methanethiol
+    EXPECT_EQ(exchangeable("C[SeH]"), 1);        // methaneselenol
 }
 
 TEST(ExchangeableHydrogens, IgnoresHydrogenOnCarbonPhosphorusSiliconAndBoron) {
