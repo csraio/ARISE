@@ -29,6 +29,7 @@ import collections
 import datetime
 import gzip
 import hashlib
+import importlib.util
 import json
 import re
 import statistics
@@ -251,6 +252,166 @@ def build_nmrshiftdb(sd_path):
           file=sys.stderr)
     return ([f"{db_id}\t{smiles}\t{marks}" for db_id, smiles, marks, _ in sample],
             [f"{db_id}\t{smiles}\t{shifts}" for db_id, smiles, _, shifts in records])
+
+
+# ---- exchangeable protons (secondary cases for hsqc) ------------------------------------
+
+def load_solvent_rules():
+    """scripts/arise_solvents.py, loaded by path (python -I leaves scripts/ off sys.path)."""
+    path = Path(__file__).resolve().parent / "arise_solvents.py"
+    spec = importlib.util.spec_from_file_location("arise_solvents", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SOLVENT_RULES = load_solvent_rules()
+SOLVENT_TABLE = REPO / "data" / "solvent_peaks.tsv"
+PUBCHEM_CACHE = Path.home() / ".cache" / "arise" / "pubchem"
+EXCHANGING = {"O", "N", "S", "Se"}  # H on these is exchangeable (chem::exchangeable_hydrogens)
+EXCHANGEABLE_DROPPED = collections.Counter()
+EXCHANGEABLE_ADMITTED = collections.Counter()
+
+
+def record_solvent(text, solvents):
+    """The ARISE solvent an nmrshiftdb2 NMREDATA_SOLVENT text names, or None (counted).
+    The whole text is looked up first, then each comma-separated part ("DMSO-D6, C2D6SO"
+    gives a name and a formula). Parts PubChem does not know are skipped; at least one part
+    must name an ARISE solvent, every part that names a compound must name that same one,
+    and a part naming anything else (another or an undeuterated compound) leaves the record
+    out."""
+    text = text.strip().splitlines()[0].rstrip("\\").strip() if text.strip() else ""
+    if not text or text.lower() in ("unreported", "unknown"):
+        EXCHANGEABLE_DROPPED["no solvent reported"] += 1
+        return None
+    unknown = "solvent name not one PubChem compound"
+    for names in ([text], [part.strip() for part in text.split(",") if part.strip()]):
+        found = set()
+        rejected = False
+        for name in names:
+            solvent, by_rule, reason = SOLVENT_RULES.identify(name, None, solvents, PUBCHEM_CACHE)
+            if solvent is not None:
+                found.add((solvent, by_rule, name))
+            elif reason != unknown:
+                rejected = True
+        if rejected:
+            break
+        if len({solvent for solvent, _, _ in found}) == 1:
+            solvent, by_rule, name = sorted(found)[0]
+            if by_rule:
+                EXCHANGEABLE_ADMITTED[f'unlabelled "{name}" taken as deuterated'] += 1
+            return solvent
+        if len(found) > 1:
+            EXCHANGEABLE_DROPPED["solvent mixture"] += 1
+            return None
+    EXCHANGEABLE_DROPPED["solvent not one of ARISE's (or not deuterated)"] += 1
+    return None
+
+
+def proton_peaks(mol):
+    """[(shift, kind, [H-bearing atom indices])] of the record's 1H spectrum, kind "C" for H
+    on carbon and "X" for H on O/N/S/Se; None (counted) when a peak is unusable."""
+    assignment = parse_assignment(mol.GetProp("NMREDATA_ASSIGNMENT"))
+    if assignment is None:
+        EXCHANGEABLE_DROPPED["unreadable assignment"] += 1
+        return None
+    peaks = []
+    seen = set()
+    for raw in mol.GetProp("NMREDATA_1D_1H").splitlines():
+        match = re.match(r"\s*(-?\d+(?:\.\d+)?)\s*,.*\bL=([^\s,\\]+)", raw)
+        if not match or match.group(2) in seen:
+            continue  # some records repeat a peak's line under the same label: one peak
+        label = match.group(2)
+        seen.add(label)
+        if label not in assignment:
+            EXCHANGEABLE_DROPPED["1H peak without an assignment"] += 1
+            return None
+        bearers = set()
+        for number in assignment[label][1]:
+            if not 0 < number <= mol.GetNumAtoms():
+                EXCHANGEABLE_DROPPED["assignment names a missing atom"] += 1
+                return None
+            atom = mol.GetAtomWithIdx(number - 1)
+            if atom.GetSymbol() == "H":
+                if atom.GetDegree() != 1:
+                    EXCHANGEABLE_DROPPED["H bonded to more than one atom"] += 1
+                    return None
+                atom = atom.GetNeighbors()[0]
+            bearers.add(atom.GetIdx())
+        elements = {mol.GetAtomWithIdx(i).GetSymbol() for i in bearers}
+        if elements == {"C"}:
+            kind = "C"
+        elif elements and elements <= EXCHANGING:
+            kind = "X"
+        else:
+            EXCHANGEABLE_DROPPED["1H peak on H of several kinds, or on P/Si/B"] += 1
+            return None
+        peaks.append((float(match.group(1)), kind, sorted(bearers)))
+    return peaks
+
+
+def exchangeable_case(mol, solvents):
+    """(solvent, SMILES, peaks text, HSQC text) of one record, or None (counted)."""
+    for prop in ("NMREDATA_1D_1H", "NMREDATA_1D_13C", "NMREDATA_ASSIGNMENT", "NMREDATA_INCHI"):
+        if not mol.HasProp(prop):
+            return None
+    if not in_scope(mol) or not same_structure(mol, mol.GetProp("NMREDATA_INCHI")):
+        return None
+    peaks = proton_peaks(mol)
+    if not peaks or not any(kind == "X" for _, kind, _ in peaks):
+        return None
+    solvent = record_solvent(mol.GetProp("NMREDATA_SOLVENT")
+                             if mol.HasProp("NMREDATA_SOLVENT") else "", solvents)
+    if solvent is None:
+        return None
+    carbon = carbon_shifts(mol)
+    hsqc = set()
+    for shift, kind, bearers in peaks:
+        if kind != "C":
+            continue
+        for atom in bearers:
+            if atom not in carbon:
+                EXCHANGEABLE_DROPPED["C-H peak whose carbon has no assigned 13C shift"] += 1
+                return None
+            hsqc.add((shift, carbon[atom]))
+    if not hsqc:
+        EXCHANGEABLE_DROPPED["no H on carbon (its HSQC would be empty)"] += 1
+        return None
+    smiles, _ = kekule_smiles_with_order(mol)
+    peak_text = " ".join(f"{shift:g}:{kind}" for shift, kind, _ in sorted(peaks))
+    hsqc_text = " ".join(f"{h:g}:{c:g}" for h, c in sorted(hsqc))
+    return solvent, smiles, peak_text, hsqc_text
+
+
+def build_exchangeable_cases(sd_path):
+    """Lines of nmrshiftdb2_exchangeable.tsv: every InChI-checked, in-scope record with an
+    assigned 1H peak on H bonded to O, N, S or Se, an assigned 13C spectrum and a solvent
+    that is one of ARISE's. Secondary evidence: the HSQC is derived from the assignments."""
+    solvents = SOLVENT_RULES.arise_solvents(SOLVENT_TABLE, PUBCHEM_CACHE)
+    rows = []
+    for mol in Chem.ForwardSDMolSupplier(str(sd_path), removeHs=False, sanitize=True):
+        if mol is None or not mol.HasProp("NMREDATA_ID"):
+            continue
+        match = re.search(r"DB_ID=(\d+)", mol.GetProp("NMREDATA_ID"))
+        if not match:
+            continue
+        try:
+            case = exchangeable_case(mol, solvents)
+        except Exception:  # an RDKit failure on one record must not stop the build
+            EXCHANGEABLE_DROPPED["RDKit failure"] += 1
+            case = None
+        if case is not None:
+            rows.append((int(match.group(1)), *case))
+    rows.sort()
+    by_solvent = collections.Counter(row[1] for row in rows)
+    print(f"nmrshiftdb2: {len(rows)} exchangeable-proton cases", file=sys.stderr)
+    head = [f"# Records with an OH/NH/SH/SeH 1H peak left out, by reason (records with no such",
+            "# peak, outside the scope or failing the InChI check are not counted):"]
+    head += [f"#   {n} {reason}" for reason, n in sorted(EXCHANGEABLE_DROPPED.items())]
+    head += [f"# Admitted by rule: {n} {rule} (arise_solvents.UNLABELLED_DEUTERATED)"
+             for rule, n in sorted(EXCHANGEABLE_ADMITTED.items())]
+    head.append("# Cases by solvent: " + ", ".join(f"{s} {n}" for s, n in sorted(by_solvent.items())))
+    return head + ["\t".join(str(v) for v in row) for row in rows]
 
 
 # Measured, not remembered: the C=N carbon of oximes vs oxime ethers (the user's rule for
@@ -832,6 +993,18 @@ def main():
          "# ('.' = not carbon, '-' = carbon not listed in the assignment).",
          f"# Dropped {DROPPED['nmrshiftdb2']} records whose molfile does not give the InChI",
          "# nmrshiftdb2 lists for it (formula, connection and hydrogen layers)."] + nmr_lines,
+        [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
+    (OUT / "nmrshiftdb2_exchangeable.tsv").write_text(header(
+        ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",
+         "# available here under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt,",
+         f"# {LICENSE_URL}).",
+         "# SECONDARY evidence for hsqc::classify_protons: the HSQC below is derived from each",
+         "# record's assignments (one cross peak per 1H peak on carbon, at that carbon's",
+         "# assigned 13C shift), and the tests derive the D2O-shake list the same way. Only the",
+         "# 1H shifts and which atom each H is on are measured data.",
+         "# Columns: nmrshiftdb2 id, ARISE solvent, Kekule SMILES, 1H peaks as shift:kind",
+         "# (kind C = H on carbon, X = H on O, N, S or Se), derived HSQC as h:c pairs."]
+        + build_exchangeable_cases(args.nmrshiftdb),
         [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
     (OUT / "measurements.tsv").write_text(header(
         ["# Measured from nmrshiftdb2 (made available under the nmrshiftdb2 Database License,",
