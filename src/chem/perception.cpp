@@ -1073,6 +1073,23 @@ Occurrences find_rings(const Molecule& molecule, const Aromaticity& aromaticity,
 
 }  // namespace
 
+int exchangeable_hydrogens(const Molecule& molecule) noexcept {
+    int total = 0;
+    for (std::size_t atom = 0; atom < molecule.atoms().size(); ++atom) {
+        switch (molecule.atoms()[atom].element) {
+            case Element::O:
+            case Element::N:
+            case Element::S:
+            case Element::Se:
+                total += molecule.hydrogen_count(atom);
+                break;
+            default:
+                break;
+        }
+    }
+    return total;
+}
+
 std::optional<nmr1d::CarbonType> carbon_type(const Molecule& molecule, std::size_t atom) noexcept {
     if (molecule.atoms()[atom].element != Element::C) {
         return std::nullopt;

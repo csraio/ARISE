@@ -586,4 +586,43 @@ TEST(Groups, NamesAreReadable) {
     EXPECT_EQ(arise::chem::kAllGroups.size(), 27U);  // the signed-off definitions table
 }
 
+// ---- exchangeable hydrogens --------------------------------------------------------------
+// H on O, N, S and Se (the chemist's definition, 2026-11-07): the protons a D2O shake
+// removes. Each SMILES's per-atom H counts are also checked against RDKit by the spec
+// oracle (tests/data/reference/spec_rdkit_oracle.tsv).
+
+int exchangeable(std::string_view smiles) {
+    return arise::chem::exchangeable_hydrogens(parse_ok(smiles));
+}
+
+TEST(ExchangeableHydrogens, CountsHydrogenOnOxygen) {
+    EXPECT_EQ(exchangeable("CCO"), 1);      // ethanol
+    EXPECT_EQ(exchangeable("CC(=O)O"), 1);  // acetic acid
+    EXPECT_EQ(exchangeable("OCCO"), 2);     // ethylene glycol
+    EXPECT_EQ(exchangeable("O"), 2);        // water
+}
+
+TEST(ExchangeableHydrogens, CountsHydrogenOnNitrogenSulfurAndSelenium) {
+    EXPECT_EQ(exchangeable("NCC(=O)O"), 3);      // glycine: NH2 and OH
+    EXPECT_EQ(exchangeable("NC(CO)C(=O)O"), 4);  // serine: NH2, CH2-OH and COOH
+    EXPECT_EQ(exchangeable("CNC"), 1);           // dimethylamine
+    EXPECT_EQ(exchangeable("NC=O"), 2);          // formamide
+    EXPECT_EQ(exchangeable("CS"), 1);            // methanethiol
+    EXPECT_EQ(exchangeable("C[SeH]"), 1);        // methaneselenol
+}
+
+TEST(ExchangeableHydrogens, IgnoresHydrogenOnCarbonPhosphorusSiliconAndBoron) {
+    EXPECT_EQ(exchangeable("COC"), 0);      // dimethyl ether
+    EXPECT_EQ(exchangeable("CN(C)C"), 0);   // trimethylamine
+    EXPECT_EQ(exchangeable("CP"), 0);       // methylphosphine: P-H does not exchange
+    EXPECT_EQ(exchangeable("C[SiH3]"), 0);  // methylsilane
+    EXPECT_EQ(exchangeable("CB"), 0);       // methylborane
+}
+
+TEST(ExchangeableHydrogens, CountsExplicitHydrogenAtomsOnce) {
+    // An explicit [H] atom bonded to O is that O's hydrogen, not a second one.
+    EXPECT_EQ(exchangeable("[H]OC"), 1);
+    EXPECT_EQ(exchangeable("[H]C([H])([H])O"), 1);
+}
+
 }  // namespace

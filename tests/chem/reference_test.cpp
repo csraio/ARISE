@@ -1085,6 +1085,7 @@ std::set<std::string> spec_literals() {
         "parse_smiles(\"",       "parse_ok(\"",    "parse(\"",
         "expect_error(\"",       "groups(\"",      "environments(\"",
         "carbon_class_sizes(\"", "topological(\"", "verdict(\"",
+        "exchangeable(\"",
     };
     const auto sources = arise::test::join_chunks(arise::test::kSpecSourcesChunks);
     std::set<std::string> literals;
