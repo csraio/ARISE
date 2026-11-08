@@ -1,6 +1,7 @@
 add_executable(arise_hsqc_tests
     bmrb_test.cpp
-    exchangeable_test.cpp)
+    exchangeable_test.cpp
+    nmrshiftdb2_test.cpp)
 
 # arise::chem is linked for the BMRB check only, to tell which BMRB atoms are carbons; the
 # hsqc module itself does not depend on it.
