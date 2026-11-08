@@ -12,7 +12,8 @@ The cases are chosen by a rule, not by hand: every sample of a BMRB metabolomics
     (data/solvent_peaks.tsv): the solvent's name, looked up in PubChem, must have the same
     InChI skeleton (formula, connections, hydrogens) as the ARISE solvent's PubChem CID, and
     be deuterated (by name, as "D2O", or by the sample's own "deuterated" labelling, or,
-    for a name in UNLABELLED_DEUTERATED given with no labelling, by that rule);
+    for a name in arise_solvents.UNLABELLED_DEUTERATED given with no labelling, by
+    that rule; the matching is shared in scripts/arise_solvents.py);
   * exactly one compound (chem_comp) whose atoms and bonds, as the entry lists them, give
     RDKit the InChI the entry itself states, and which is in ARISE's scope (net-neutral,
     one fragment, ARISE's elements);
@@ -36,16 +37,28 @@ ARISE never imports this script; it only reads the files it writes.
 import collections
 import datetime
 import html
+import importlib.util
 import json
 import re
 import sys
 import time
-import urllib.error
-import urllib.parse
 import urllib.request
 from pathlib import Path
 
 from rdkit import Chem, RDLogger, rdBase
+
+
+def load_solvent_rules():
+    """scripts/arise_solvents.py, loaded by path (python -I leaves scripts/ off sys.path)."""
+    path = Path(__file__).resolve().parent / "arise_solvents.py"
+    spec = importlib.util.spec_from_file_location("arise_solvents", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+SOLVENT_RULES = load_solvent_rules()
+inchi_skeleton = SOLVENT_RULES.inchi_skeleton
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -53,6 +66,7 @@ REPO = Path(__file__).resolve().parent.parent
 OUT = REPO / "tests" / "data" / "reference"
 SOLVENTS = REPO / "data" / "solvent_peaks.tsv"
 CACHE = Path.home() / ".cache" / "arise" / "bmrb"
+PUBCHEM_CACHE = CACHE / "pubchem"
 API = "https://api.bmrb.io/v2"
 HEADERS = {"Application": "ARISE reference builder"}
 
@@ -77,10 +91,6 @@ CITATION_URL = "https://bmrb.io/bmrb/citation.shtml"
 ONE_D = {"1D 1H": "1H", "1D 13C": "13C", "1D DEPT135": "DEPT135", "1D DEPT90": "DEPT90"}
 
 DROPPED = collections.Counter()
-# Solvent names that count as deuterated when the sample gives no isotopic labelling: NMR
-# samples "in DMSO" are DMSO-d6 (the chemist's decision, 2026-11-04). Any other unlabelled,
-# undeuterated name is still left out.
-UNLABELLED_DEUTERATED = {"DMSO"}
 # Samples a rule above admitted, by rule (written into the file headers).
 ADMITTED = collections.Counter()
 # Optional lists (13C, DEPT-135, DEPT-90) left out of a case because they cannot be read.
@@ -131,43 +141,6 @@ def sentence_with(text, words, title):
     return text[start:(len(text) if end < 0 else end + 1)].strip()
 
 
-PUBCHEM = "https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound"
-
-
-def pubchem_inchis(kind, key):
-    """The InChIs PubChem gives for a name or CID (cached)."""
-    safe = re.sub(r"[^A-Za-z0-9]+", "_", str(key))
-    path = CACHE / "pubchem" / f"{kind}_{safe}.json"
-    url = f"{PUBCHEM}/{kind}/{urllib.parse.quote(str(key), safe='')}/property/InChI/JSON"
-    try:
-        body = get(url, path)
-    except urllib.error.HTTPError as error:
-        if error.code != 404:
-            raise
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(b'{"PropertyTable": {"Properties": []}}')
-        body = path.read_bytes()
-    return [p["InChI"] for p in json.loads(body)["PropertyTable"]["Properties"]]
-
-
-def inchi_skeleton(inchi):
-    """Formula, connections and hydrogens: the layers before stereo and isotopes."""
-    layers = inchi.strip().split("/")
-    kept = layers[:2]
-    for layer in layers[2:]:
-        if layer[:1] not in ("c", "h"):
-            break
-        kept.append(layer)
-    return "/".join(kept)
-
-
-def deuterated(inchi):
-    """Whether the InChI's isotopic layer (from "/i" on, including its "/hD2"-style
-    sublayer for exchangeable H) names deuterium."""
-    at = inchi.find("/i")
-    return at >= 0 and "D" in inchi[at:]
-
-
 # ---- NMR-STAR access ---------------------------------------------------------------------
 
 def frames(data, category):
@@ -191,40 +164,18 @@ def given(value):
 
 # ---- solvents ----------------------------------------------------------------------------
 
-def arise_solvents():
-    """{InChI skeleton: ARISE solvent name} from data/solvent_peaks.tsv's PubChem CIDs."""
-    found = {}
-    for line in SOLVENTS.read_text().splitlines():
-        if not line or line.startswith("#"):
-            continue
-        name, cid = line.split("\t")[:2]
-        inchis = pubchem_inchis("cid", cid)
-        if len(inchis) != 1 or not deuterated(inchis[0]):
-            sys.exit(f"{name}: PubChem CID {cid} is not one deuterated compound")
-        found[inchi_skeleton(inchis[0])] = name
-    return found
-
-
 def solvent_of(components, solvents):
     """(ARISE solvent name, None), or (None, the reason the sample's solvent is not one)."""
     listed = [c for c in components if c.get("Type", "").lower() == "solvent"]
     if len(listed) != 1:
         return None, f"{len(listed)} solvents listed"
     name = listed[0].get("Mol_common_name", "")
-    inchis = pubchem_inchis("name", name) if given(name) else []
-    if len(inchis) != 1:
-        return None, "solvent name not one PubChem compound"
     label = listed[0].get("Isotopic_labeling")
-    labelled = given(label) and "deuterated" in label.lower()
-    by_rule = not given(label) and name in UNLABELLED_DEUTERATED
-    if not (deuterated(inchis[0]) or labelled or by_rule):
-        return None, "solvent not deuterated"
-    solvent = solvents.get(inchi_skeleton(inchis[0]))
-    if solvent is None:
-        return None, "solvent not one of ARISE's"
-    if by_rule and not (deuterated(inchis[0]) or labelled):
+    solvent, by_rule, reason = SOLVENT_RULES.identify(
+        name if given(name) else "", label if given(label) else None, solvents, PUBCHEM_CACHE)
+    if by_rule:
         ADMITTED[f'unlabelled "{name}" taken as deuterated (UNLABELLED_DEUTERATED)'] += 1
-    return solvent, None
+    return solvent, reason
 
 
 # ---- structure ---------------------------------------------------------------------------
@@ -506,7 +457,7 @@ def tsv(value):
 
 def main():
     today = datetime.date.today().isoformat()
-    solvents = arise_solvents()
+    solvents = SOLVENT_RULES.arise_solvents(SOLVENTS, PUBCHEM_CACHE)
     names = json.loads(get(f"{API}/search/get_all_values_for_tag/"
                            "Spectral_peak_list.Experiment_name?database=metabolomics"))
     candidates = sorted(e for e, listed in names.items()

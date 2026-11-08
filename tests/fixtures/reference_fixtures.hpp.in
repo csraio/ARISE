@@ -99,6 +99,15 @@ inline constexpr std::array<std::string_view, @ARISE_SOLVENT_SOURCES_CHUNK_COUNT
     kSolventSourcesChunks{
 @ARISE_SOLVENT_SOURCES_CHUNKS@};
 
+// nmrshiftdb2 records with an assigned OH/NH/SH/SeH 1H peak, a solvent and 13C assignments:
+// 1H peaks by kind and an HSQC derived from the assignments (secondary evidence for
+// hsqc::classify_protons). Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made
+// available here under the nmrshiftdb2 Database License
+// (tests/data/reference/NMRSHIFTDB2_LICENSE.txt).
+inline constexpr std::array<std::string_view, @ARISE_NMRSHIFTDB_EXCHANGEABLE_CHUNK_COUNT@>
+    kNmrshiftdbExchangeableChunks{
+@ARISE_NMRSHIFTDB_EXCHANGEABLE_CHUNKS@};
+
 // Experimental 1H, 13C, DEPT and HSQC peak lists of BMRB metabolomics samples, with each
 // entry's structure; read with bmrb_cases.hpp. Contains data from the Biological Magnetic
 // Resonance Data Bank (https://bmrb.io); see tests/data/reference/BMRB_NOTICE.md.
