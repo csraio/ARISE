@@ -2,8 +2,8 @@
 
 ARISE's confirmable functional groups. A chemist confirms or rules out groups from the
 spectra, and confirmed groups **eliminate** candidates. So the groups are fine-grained
-motifs that NMR can tell apart. If they were coarse, a correct "no ester" would wrongly
-eliminate a carbonate, whose C=O resonates elsewhere. A web page can still offer families
+motifs. If they were coarse, a correct "no ester" would wrongly eliminate a carbonate,
+which ARISE counts as its own group. A web page can still offer families
 built from these exact groups (e.g. "any carbonyl derivative").
 
 **Validation.** Each group maps to one ChEBI class, which is expert-curated (EBI; CC BY 4.0;
@@ -217,7 +217,7 @@ files):
 | formate | 1 | chem tests | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
 | mixture | 1 | chem tests | ARISE reads one molecule; '.' is a ParseError (molecule.hpp) |
 | unsupported-element | 1 | chem tests | outside ARISE's elements (molecule.hpp) |
-| bmrb-assignment | 1 | BMRB | BMRB assigns 1H peaks that have HSQC cross peaks to H on O or N (guanosine, bmse000091); an assignment error in the entry |
+| bmrb-assignment | 1 | BMRB | BMRB assigns 1H peaks that have HSQC cross peaks to H on O or N (guanosine, bmse000091): the entry's assignment contradicts its own HSQC list |
 | hypervalent-charged | 68 | valence probes | RDKit's valence lists for charged Cl, Br, I, P and Si (3-6 bonds on Cl+/Br+, ate complexes of I-, P-, Si-, P+ with 6 bonds) differ from ARISE's charge-shifted normal valences |
 
 **Gaps these checks exposed** (no group today; add one if it matters): OH on a

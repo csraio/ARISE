@@ -18,10 +18,10 @@ namespace arise::hsqc {
 /// or water signal, and still match it (inclusive). A convention the chemist chose
 /// (2026-11-05), not a constant of nature. On BMRB's experimental spectra
 /// (tests/data/reference/bmrb_*.tsv), 98.4% of 1H peaks on carbon have an HSQC partner
-/// within 0.15 ppm, against 94.3% within 0.05 ppm. The gap is mostly multiplet width: a 1H
-/// list gives a multiplet's centre, while an HSQC peak is picked somewhere inside it.
-/// The trade-off: an OH, NH or SH peak lying within this distance of a C-H peak is hidden
-/// behind it, so the D2O shake is the remedy. Lower the tolerance for crowded spectra.
+/// within 0.15 ppm, against 94.3% within 0.05 ppm (tests/hsqc/bmrb_test.cpp). The cost: an
+/// exchangeable peak within this distance of a C-H or solvent peak is not suggested; on
+/// nmrshiftdb2's assigned spectra that is about 9% of them (tests/hsqc/nmrshiftdb2_test.cpp),
+/// and the D2O-shake list is the remedy. Lower the tolerance for crowded spectra.
 inline constexpr core::Ppm kDefaultProtonTolerance{0.15};
 
 /// What one 1H peak most likely is, from 1H vs HSQC (and the D2O shake, when given).
@@ -29,16 +29,15 @@ enum class ProtonVerdict : std::uint8_t {
     /// An HSQC cross peak lies within tolerance: the H is on a carbon.
     OnCarbon,
     /// A residual-solvent or water signal of the solvent lies within tolerance, and no HSQC
-    /// peak does. Water moves with temperature and concentration, so a water match means
-    /// "possibly water", never certainly.
+    /// peak does. The water shift varies (data/solvent_peaks.tsv cites its sources), so a
+    /// water match means "possibly water", never certainly.
     SolventOrWater,
-    /// The peak disappeared after the D2O shake: the H exchanges (OH, NH, SH, SeH). This
-    /// overrides every other evidence.
+    /// The peak is missing from the D2O-shake list. This overrides every other evidence.
     Exchangeable,
     /// Neither an HSQC peak nor a solvent or water signal lies within tolerance: suggested
-    /// as exchangeable (OH, NH, SH, SeH). Some C-H peaks are HSQC-silent and land here too: a
-    /// terminal alkyne C-H (one-bond coupling about 250 Hz, far from the usual 145 Hz
-    /// setting), very weak peaks, and H on P, Si or B. The chemist decides.
+    /// as exchangeable. A 1H-13C HSQC correlates only H on carbon, so H on any other atom
+    /// lands here; so does an H on carbon whose cross peak is missing from the HSQC list.
+    /// The chemist decides.
     NoHsqcPartner,
     /// Both an HSQC peak and a solvent or water signal lie within tolerance: it may be a
     /// C-H, the solvent, water, or an exchangeable H hidden under one of them.
@@ -82,8 +81,8 @@ struct ProtonSpectra {
     core::Ppm tolerance = kDefaultProtonTolerance;
 };
 
-/// The verdicts, and the D2O-shake peaks that match no original peak (typically the new
-/// HDO peak the shake produces), which are reported, not used.
+/// The verdicts, and the D2O-shake peaks that match no original peak, which are reported,
+/// not used.
 struct ProtonClassification {
     /// One per 1H peak, in input order.
     std::vector<ProtonClass> peaks;
@@ -112,9 +111,9 @@ struct ExchangeableCount {
     /// Protons of the Exchangeable and NoHsqcPartner peaks.
     int min = 0;
     /// min plus the protons of the Undetermined peaks; std::nullopt (no upper bound) in a
-    /// solvent that exchanges labile H for D (D2O, CD3OD, TFE-d3), where OH, NH and SH
-    /// usually do not appear at all. In any solvent a broad exchangeable peak can also
-    /// vanish into the baseline, so the chemist's count may exceed this.
+    /// solvent carrying deuterium on O, N or S (nmr1d's exchanges_labile_h: D2O, CD3OD,
+    /// TFE-d3), the chemist's decision (2026-11-01). The chemist's confirmed count may
+    /// exceed this suggestion.
     std::optional<int> max = 0;
 
     friend bool operator==(const ExchangeableCount&, const ExchangeableCount&) = default;

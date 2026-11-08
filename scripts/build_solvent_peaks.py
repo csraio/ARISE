@@ -36,7 +36,7 @@ import urllib.request
 from decimal import Decimal
 from pathlib import Path
 
-from pdfminer.high_level import extract_pages
+from pdfminer.high_level import extract_pages, extract_text
 from pdfminer.layout import LAParams, LTChar, LTLine, LTRect, LTTextLine
 from rdkit import Chem, RDLogger
 
@@ -348,8 +348,9 @@ def identify(heading):
 
 
 def exchanges_labile_h(smiles):
-    """True when the solvent carries deuterium on O, N or S (D2O, CD3OD, TFE-d3), so it
-    exchanges a solute's OH/NH/SH protons for deuterium."""
+    """True when the solvent's structure carries deuterium on O, N or S (D2O, CD3OD,
+    TFE-d3); ARISE then leaves the suggested exchangeable count open (the chemist's
+    decision, 2026-11-01)."""
     mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
     return any(atom.GetSymbol() == "H" and atom.GetIsotope() == 2
                and atom.GetNeighbors()[0].GetSymbol() in ("O", "N", "S")
@@ -388,6 +389,25 @@ def printed(values):
 def fmt(values):
     """Accepted shifts: means to 3 decimals, trailing zeros dropped."""
     return ",".join(f"{v:.3f}".rstrip("0").rstrip(".") for v in values) if values else "-"
+
+
+# What the sources themselves say about the water peak, quoted in data/solvent_peaks.tsv.
+# The build stops if a PDF no longer contains its phrase.
+WATER_STATEMENTS = [
+    ("gottlieb", "the chemical shift of the residual HDO is very temperature-dependent"),
+    ("cil", "may vary with pH"),
+]
+
+
+def water_statements():
+    """Header lines quoting WATER_STATEMENTS, each checked against its PDF's text."""
+    lines = []
+    for name, phrase in WATER_STATEMENTS:
+        text = re.sub(r"\s+", " ", extract_text(str(fetch(name))))
+        if phrase not in text:
+            sys.exit(f"{name}: the PDF no longer says '{phrase}'; update WATER_STATEMENTS")
+        lines.append(f"#   {name}: '{phrase}'")
+    return lines
 
 
 def main():
@@ -445,9 +465,11 @@ def main():
     ] + [f"# Not identified: {u}" for u in unresolved] + report) + "\n")
     DATA.write_text("\n".join(common + [
         "# Residual-solvent and water 1H peaks (ppm from TMS) accepted where at least two",
-        "# sources agree within 0.01 ppm (mean of the agreeing values). Water depends on",
-        "# temperature and concentration (both papers say so); a match means 'possibly",
-        "# water'. A solvent is listed when at least one residual peak is accepted; '-' = no",
+        "# sources agree within 0.01 ppm (mean of the agreeing values). On the water peak the",
+        "# sources say (quoted from the PDFs, checked by the builder):",
+        *water_statements(),
+        "# so a water match means 'possibly water'. A solvent is listed when at least one",
+        "# residual peak is accepted; '-' = no",
         "# water value accepted. Signals only one source gives are left out; every value and",
         "# its fate: tests/data/reference/solvent_sources.tsv.",
         "# Columns: solvent, PubChem CID, residual shifts, water shifts, exchanges labile H",

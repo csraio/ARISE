@@ -33,7 +33,7 @@ void expect_error(Parser parse, std::string_view text, ErrorCode code,
     }
 }
 
-// Ethylbenzene in CDCl3, approximately (SDBS). Only the shape of the data matters.
+// Illustrative shifts, not measured data. Only the shape of the data matters.
 
 // ---- HSQC -----------------------------------------------------------------------
 

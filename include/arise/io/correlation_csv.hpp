@@ -29,8 +29,8 @@ struct CorrelationPeak {
 [[nodiscard]] core::Result<std::vector<CorrelationPeak>> parse_hsqc_csv(std::string_view text);
 
 /// Parses an HMBC peak list (two- and three-bond C-H correlations): same columns and
-/// shift windows as parse_hsqc_csv. HMBC is usually processed in magnitude mode, so
-/// `intensity` may be any finite value. At least one peak.
+/// shift windows as parse_hsqc_csv. `intensity` may be any finite value (ARISE does not
+/// use its sign). At least one peak.
 [[nodiscard]] core::Result<std::vector<CorrelationPeak>> parse_hmbc_csv(std::string_view text);
 
 }  // namespace arise::io

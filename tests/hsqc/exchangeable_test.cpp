@@ -151,7 +151,7 @@ TEST(HsqcClassifyProtons, PeakStillThereAfterTheD2oShakeKeepsItsOtherVerdict) {
 }
 
 TEST(HsqcClassifyProtons, NewPeaksAfterTheD2oShakeAreReportedNotUsed) {
-    // The shake makes a new HDO peak; it matches no original peak.
+    // A peak present only after the shake matches no original peak.
     const auto at = clear_shift(3.0);
     const auto fresh = proton(clear_shift(at.value() + 2.0));
     const auto result = classify({proton(at)}, {cross(at)}, std::vector{proton(at), fresh});

@@ -30,8 +30,7 @@ struct DeptPeak {
 /// Plausibility window for 13C shifts: a convention, deliberately wide. It must contain
 /// every 13C shift nmrshiftdb2 lists for an in-scope molecule (measured by
 /// scripts/build_reference_sets.py into tests/data/reference/measurements.tsv and checked
-/// by a test): iodomethanes reach about -46 ppm, thio- and selenoketones about 293 ppm.
-/// Values far outside almost always mean the wrong column, such as Hz offsets.
+/// by a test). A value outside it usually means the wrong column, such as Hz offsets.
 inline constexpr core::Ppm kMinCarbonShift{-50.0};
 inline constexpr core::Ppm kMaxCarbonShift{300.0};
 

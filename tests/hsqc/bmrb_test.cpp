@@ -8,8 +8,8 @@
 // Checked:
 //   * 1H peaks BMRB assigns to H on carbon must find an HSQC partner (OnCarbon, or
 //     Undetermined when a solvent signal also lies near) at a measured rate. A per-peak
-//     rule is not possible: a 1H list gives a multiplet's centre, an HSQC list a point
-//     inside it, and BMRB's two lists do not always line up.
+//     rule is not possible: BMRB's 1H and HSQC lists do not always line up within the
+//     tolerance.
 //   * 1H peaks BMRB assigns to H on O, N or S must not be found on carbon (NoHsqcPartner,
 //     or Undetermined). Disagreements are signed-off rows of known_differences.tsv.
 

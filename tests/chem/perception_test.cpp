@@ -215,9 +215,9 @@ TEST(Symmetry, IsotopeLabelBreaksEquivalence) {
 }
 
 // ---- NMR equivalence ---------------------------------------------------------------
-// Expected 13C environment counts. Literature behaviour (e.g. Pretsch et al.; standard
-// texts on diastereotopicity and amide rotation): valine's isopropyl methyls differ,
-// linalool's =C(CH3)2 methyls differ (~17.6/25.7 ppm), DMF's N-methyls differ.
+// Expected 13C environment counts under the chemist's rules (perception.hpp,
+// NmrEquivalence). The rules themselves are checked against nmrshiftdb2's assigned spectra
+// in reference_test.cpp.
 
 struct Range {
     int fewest;
@@ -256,17 +256,40 @@ TEST(NmrEquivalence, EZNeedsDifferentGroupsOnTheOtherEnd) {
     EXPECT_EQ(environments("C=C(C)C"), (Range{3, 3}));      // isobutylene: =CH2 end
 }
 
-TEST(NmrEquivalence, AmideRotationSplitsAlways) {
+TEST(NmrEquivalence, AmideNGroupsAlwaysSplit) {
     EXPECT_EQ(topological("CN(C)C=O"), 2);  // DMF
     EXPECT_EQ(environments("CN(C)C=O"), (Range{3, 3}));
     EXPECT_EQ(environments("CC(=O)N(C)C"), (Range{4, 4}));  // N,N-dimethylacetamide
     EXPECT_EQ(environments("CN(C)C=S"), (Range{3, 3}));     // thioamide
 }
 
-TEST(NmrEquivalence, BorderlineRotationGivesARange) {
+TEST(NmrEquivalence, CarbamateUreaAndEnaminoneNGroupsGiveARange) {
     EXPECT_EQ(environments("CN(C)C(=O)N(C)C"), (Range{2, 3}));  // tetramethylurea
     EXPECT_EQ(environments("COC(=O)N(C)C"), (Range{3, 4}));     // methyl dimethylcarbamate
     EXPECT_EQ(environments("CN(C)C=CC(C)=O"), (Range{5, 6}));   // enaminone
+}
+
+// The chemist's decision of 2026-11-08: splits that nmrshiftdb2's assigned spectra
+// support only weakly (Reference.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth
+// counts them) give a range instead of always splitting.
+TEST(NmrEquivalence, WeaklySupportedSplitsGiveARange) {
+    // Amidine/guanidine C=N: the two N(CH3)2 groups may or may not differ.
+    EXPECT_EQ(environments("CN(C)C(=N)N(C)C"), (Range{2, 3}));
+    // C=C whose far end carries an amino N (push-pull): the two acetyls may differ, and
+    // the N-methyls (an enaminone N) may differ too.
+    EXPECT_EQ(environments("CC(=O)C(=CN(C)C)C(C)=O"), (Range{5, 8}));
+    // Push-pull C=C with the amino groups on the identical end (a ketene aminal): the two
+    // N(CH3)2 groups may differ, and so may the methyls within each.
+    EXPECT_EQ(environments("CC(=O)C=C(N(C)C)N(C)C"), (Range{5, 8}));
+    // N-acyl azole: the two ring halves of N-acetylpyrrole may differ.
+    EXPECT_EQ(environments("CC(=O)N1C=CC=C1"), (Range{4, 6}));
+    // N-acyl azole that ARISE does not perceive as aromatic (a 1,2,3-triazole).
+    EXPECT_EQ(environments("CC(=O)N1N=CC=N1"), (Range{3, 4}));
+}
+
+TEST(NmrEquivalence, DiazoCarbonNeverSplitsItsGroups) {
+    // C=N+=N-: nmrshiftdb2 lists the two tert-butyl groups at one shift in every case.
+    EXPECT_EQ(environments("CC(C)(C)C(=[N+]=[N-])C(C)(C)C"), (Range{3, 3}));
 }
 
 TEST(NmrEquivalence, DiastereotopicGroupsGiveARange) {
@@ -286,20 +309,20 @@ TEST(NmrEquivalence, SeveralProchiralCentresAlsoGiveARange) {
 }
 
 TEST(NmrEquivalence, OneProchiralCentreAloneKeepsEquivalence) {
-    // Isopropanol: one prochiral centre, no stereocentre; the methyls are enantiotopic
-    // and give one peak.
+    // Isopropanol: one prochiral centre and no stereocentre, so no rule splits its methyls.
     EXPECT_EQ(environments("CC(C)O"), (Range{2, 2}));
 }
 
 TEST(NmrEquivalence, UnknownStereoCanBreakASymmetry) {
-    // Hexitols: mannitol shows 3 carbon environments, sorbitol 6; SMILES without stereo
-    // cannot tell them apart.
+    // A hexitol written without stereo (mannitol and sorbitol share this SMILES): every
+    // stereocentre is split on its own in the range, so the range spans the topological
+    // count and full splitting.
     EXPECT_EQ(environments("OCC(O)C(O)C(O)C(O)CO"), (Range{3, 6}));
 }
 
-TEST(NmrEquivalence, FastRotationKeepsEquivalence) {
-    // tert-butyl methyls (three identical groups) and a phenyl's ortho carbons stay
-    // equivalent even next to a stereocentre.
+TEST(NmrEquivalence, NoRuleSplitsTertButylMethylsOrPhenylOrthoCarbons) {
+    // tert-butyl methyls (three identical groups) and a phenyl's ortho carbons: no rule
+    // splits them, even next to a stereocentre.
     EXPECT_EQ(environments("CC(C)(C)C(C)O"), (Range{4, 4}));     // 3,3-dimethyl-2-butanol
     EXPECT_EQ(environments("CC(O)C1=CC=CC=C1"), (Range{6, 6}));  // 1-phenylethanol
     EXPECT_EQ(environments("CCOC(=O)C"), (Range{4, 4}));         // ethyl acetate

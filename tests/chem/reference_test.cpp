@@ -21,6 +21,7 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
+#include <cmath>
 #include <cstddef>
 #include <iostream>
 #include <map>
@@ -784,9 +785,10 @@ TEST(Reference, EquivalentCarbonsNeverHaveDifferentExperimentalShifts) {
 }
 
 TEST(Reference, ReportsUnlistedCarbonsWithoutAListedEquivalent) {
-    // Databases list one atom per carbon environment. A carbon that is not listed should
-    // therefore be equivalent to a listed one; if ARISE gives it a class of its own,
-    // either ARISE failed to see a symmetry or the database left a peak unassigned.
+    // Assumes the database lists one atom per carbon environment (not verified, which is
+    // one reason this check only reports). A carbon that is not listed should then be
+    // equivalent to a listed one; if ARISE gives it a class of its own, either ARISE
+    // failed to see a symmetry or the database left a peak unassigned.
     std::vector<std::string> problems;
     const auto spectra = assigned_spectra();
     for (const auto& spectrum : spectra) {
@@ -1373,6 +1375,121 @@ TEST(Reference, EveryOccurrenceHasItsHallmarksOnCarbon) {
         }
     }
     expect_no_disagreements(problems, checked);
+}
+
+// ---- The chemist's "always split" rules against nmrshiftdb2 ----------------------------
+
+#ifndef __EMSCRIPTEN__  // the helpers below serve a test that does not run under wasm
+// Pairs of carbons that are topologically equivalent (symmetry_classes) but that ARISE
+// always splits (nmr_equivalence().fewest: the chemist's E/Z and amide/thioamide rules),
+// where nmrshiftdb2 assigns a shift to both carbons: "different" pairs support the rule,
+// "same" pairs contradict it (or are a database entry giving both carbons one value).
+struct SplitEvidence {
+    std::size_t records = 0;
+    std::size_t different = 0;
+    std::size_t one_listed = 0;
+    std::vector<std::string> same;
+    // Per record with at least one pair listed on both carbons: the share of such pairs at
+    // different shifts (records are the units: one molecule's pairs are not independent).
+    std::size_t rated = 0;
+    double share_sum = 0.0;
+    double share_square_sum = 0.0;
+};
+
+// The share of always-split pairs nmrshiftdb2 lists at different shifts (mean over
+// records), and the standard deviation of the per-record shares, measured by the test below
+// on 2026-11-08 after the chemist moved the weakly supported splits (amidines and
+// guanidines, enamines and enaminones, N-acyl azoles) to the range and diazo carbons out:
+// 0.904858 and 0.274995 over 638 records, recorded rounded down and up, so the pass mark
+// (rate less three standard errors) only loosens. Each "same shift" pair is printed for the
+// chemist. Re-measure on purpose when the rules or the extract change.
+constexpr double kMeasuredSplitSupport = 0.904;
+constexpr double kMeasuredSplitSupportSd = 0.275;
+
+// The always-split carbon pairs (i, j) of one molecule.
+std::vector<std::pair<std::size_t, std::size_t>> always_split_pairs(
+    const arise::chem::Molecule& molecule) {
+    const auto topological = arise::chem::symmetry_classes(molecule);
+    const auto fewest = arise::chem::nmr_equivalence(molecule).fewest;
+    std::vector<std::pair<std::size_t, std::size_t>> pairs;
+    for (std::size_t i = 0; i < topological.size(); ++i) {
+        if (molecule.atoms()[i].element != arise::chem::Element::C) {
+            continue;
+        }
+        for (std::size_t j = i + 1; j < topological.size(); ++j) {
+            if (topological[i] == topological[j] && fewest[i] != fewest[j]) {
+                pairs.emplace_back(i, j);
+            }
+        }
+    }
+    return pairs;
+}
+
+void add_split_evidence(const arise::tools::ShiftRecord& record, SplitEvidence& evidence) {
+    const auto molecule = arise::chem::parse_smiles(record.smiles);
+    if (!molecule || record.shifts.size() != molecule.value().atoms().size()) {
+        return;
+    }
+    const auto pairs = always_split_pairs(molecule.value());
+    if (pairs.empty()) {
+        return;
+    }
+    ++evidence.records;
+    std::size_t different = 0;
+    std::size_t both = 0;
+    for (const auto& [i, j] : pairs) {
+        const auto& a = record.shifts[i];
+        const auto& b = record.shifts[j];
+        if (!a || !b) {
+            ++evidence.one_listed;
+            continue;
+        }
+        ++both;
+        if (*a != *b) {
+            ++different;
+            continue;
+        }
+        evidence.same.push_back(std::to_string(record.id) + " " + std::string{record.smiles} +
+                                " atoms " + std::to_string(i) + "," + std::to_string(j) + " at " +
+                                std::to_string(*a));
+    }
+    evidence.different += different;
+    if (both > 0) {
+        const double share = static_cast<double>(different) / static_cast<double>(both);
+        ++evidence.rated;
+        evidence.share_sum += share;
+        evidence.share_square_sum += share * share;
+    }
+}
+
+#endif
+
+TEST(Reference, AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth) {
+#ifdef __EMSCRIPTEN__
+    GTEST_SKIP() << "measured natively over the full extract; far slower under wasm checks";
+#else
+    const auto extract = arise::test::join_chunks(arise::test::kNmrshiftdbAllChunks);
+    SplitEvidence evidence;
+    for (const auto& record : arise::tools::parse_shift_extract(extract)) {
+        add_split_evidence(record, evidence);
+    }
+    for (const auto& line : evidence.same) {
+        std::cout << "  same shift: " << line << "\n";
+    }
+    ASSERT_GT(evidence.rated, 100U);
+    const auto n = static_cast<double>(evidence.rated);
+    const double rate = evidence.share_sum / n;
+    const double sd =
+        std::sqrt(std::max(0.0, (evidence.share_square_sum - (n * rate * rate)) / (n - 1.0)));
+    const double pass_mark = kMeasuredSplitSupport - (3.0 * kMeasuredSplitSupportSd / std::sqrt(n));
+    std::cout << "[ reference ] always-split pairs in " << evidence.records
+              << " records: " << evidence.different << " at different shifts, "
+              << evidence.same.size() << " at the same shift, " << evidence.one_listed
+              << " with one carbon unlisted; " << evidence.rated
+              << " records rated, support (mean over records) " << rate << ", SD " << sd
+              << ", pass mark " << pass_mark << "\n";
+    EXPECT_GE(rate, pass_mark);
+#endif
 }
 
 // ---- Measured hallmark shifts (M3b step 1) ---------------------------------------------

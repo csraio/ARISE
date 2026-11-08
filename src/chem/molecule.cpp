@@ -20,8 +20,9 @@ struct ElementInfo {
     bool organic_subset;          // may be written without brackets
 };
 
-// Indexed by Element. Normal valences follow OpenSMILES (organic subset) and common
-// organic chemistry for Si and Se.
+// Indexed by Element. Normal valences follow OpenSMILES (organic subset); Si and Se, which
+// OpenSMILES leaves to bracket atoms, are checked against RDKit by the valence probes
+// (tests/data/reference/valence_probes.tsv).
 constexpr std::array kElements{
     ElementInfo{
         .element = Element::H,
@@ -152,8 +153,9 @@ using Valences = std::array<int, 3>;
 // Normal valences of an atom. A charge changes how many bonds an atom makes: in groups
 // 15-17 a positive charge adds one and a negative one removes one (N+ 4, O- 1, S- 1/3/5,
 // I+ 2/4/6); boron gains one when negative and loses one when positive (B- 4, B+ 2);
-// carbon and silicon make three either way (C+ 3, C- 3). Second-period atoms cannot be
-// hypervalent, so only their lowest valence shifts (N+ 4, not 6).
+// carbon and silicon make three either way (C+ 3, C- 3). Second-period atoms get only
+// their lowest valence shifted (N+ 4, not 6). The valence probes check all of this
+// against RDKit (tests/data/reference/valence_probes.tsv).
 Valences normal_valences(const Atom& atom) noexcept {
     const auto& element = info(atom.element);
     if (atom.charge == 0) {

@@ -7,9 +7,9 @@ The module chain in CLAUDE.md had one `nmr2d` module near the end, after `aniso`
 "HSQC/HMBC scoring". Two things changed that:
 
 - HSQC is needed early, in 1D-style pruning, not only for final scoring. A 1H peak
-  with no HSQC cross peak, which is also not a solvent or water peak, is probably on O,
-  N or S (OH, NH, SH). A count of such protons that the chemist confirms is a hard fact
-  about the candidates (plan 3x).
+  with no HSQC cross peak, which is also not a solvent or water peak, is suggested as
+  exchangeable (H on O, N, S or Se). A count of such protons that the chemist confirms is
+  a hard fact about the candidates (plan 3x).
 - Reading a spectrum and comparing it with a candidate are different jobs. Deciding
   which 1H peaks have an HSQC partner needs only peak lists. Checking a candidate's C–H
   pairs needs a molecule.

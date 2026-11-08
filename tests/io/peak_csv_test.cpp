@@ -114,7 +114,7 @@ TEST(PeakCsv, TrimsSpacesAndTabsAroundFields) {
 }
 
 TEST(PeakCsv, AcceptsNegativeShifts) {
-    // Internal methyls of trans-15,16-dimethyldihydropyrene, near -4.25 ppm (Boekelheide).
+    // A shift below 0 inside the window (measured 1H extremes: measurements.tsv).
     const auto peaks = parse_ok("shift_ppm\n-4.25\n");
     ASSERT_EQ(peaks.size(), 1U);
     EXPECT_EQ(peaks[0].shift, Ppm{-4.25});
@@ -207,7 +207,7 @@ TEST(PeakCsv, NonFiniteValuesAreErrors) {
 // ---- Range errors ---------------------------------------------------------------
 
 TEST(PeakCsv, CarbonShiftIsOutOfRange) {
-    // 128.5 ppm is a typical aromatic 13C shift: the classic wrong-column mistake.
+    // A value from the 13C range, beyond the 1H window: the wrong-column mistake.
     expect_error("shift_ppm\n128.5\n", ErrorCode::OutOfRange, {"line 2", "128.5"});
 }
 

@@ -16,9 +16,9 @@
 namespace arise::nmr1d {
 
 /// A carbon by its number of attached hydrogens, which is what DEPT measures. The
-/// enumerator value is that number. These are often nicknamed quaternary, tertiary,
-/// secondary and primary, but that naming strictly counts attached carbons, which DEPT
-/// cannot see (an aromatic CH has two carbon neighbours; a C=O often has two).
+/// enumerator value is that number. The names quaternary, tertiary, secondary and primary
+/// count attached carbons instead, which DEPT cannot see (an aromatic CH has two carbon
+/// neighbours, so it is "tertiary" yet a CH).
 enum class CarbonType : std::uint8_t { C = 0, CH = 1, CH2 = 2, CH3 = 3 };
 
 /// "C", "CH", "CH2" or "CH3".
@@ -90,9 +90,8 @@ struct CarbonAssignment {
 };
 
 /// How far a DEPT peak's shift may differ from its 13C peak and still match. A
-/// convention, not a constant of nature: spectra of one sample, referenced alike,
-/// usually agree within about 0.01 ppm, so 0.05 ppm leaves headroom while keeping
-/// carbons about 0.1 ppm apart distinct. Lower it for crowded spectra.
+/// convention (ADR 0001), not a constant of nature: 13C peaks closer together than this
+/// make a DEPT peak ambiguous (an error). Lower it for crowded spectra.
 inline constexpr core::Ppm kDefaultMatchTolerance{0.05};
 
 /// Spectra for classify_carbons. The 13C list is required; each DEPT is optional
