@@ -32,11 +32,11 @@ enum class ProtonVerdict : std::uint8_t {
     /// peak does. Water moves with temperature and concentration, so a water match means
     /// "possibly water", never certainly.
     SolventOrWater,
-    /// The peak disappeared after the D2O shake: the H exchanges (OH, NH, SH). This
+    /// The peak disappeared after the D2O shake: the H exchanges (OH, NH, SH, SeH). This
     /// overrides every other evidence.
     Exchangeable,
     /// Neither an HSQC peak nor a solvent or water signal lies within tolerance: suggested
-    /// as exchangeable (OH, NH, SH). Some C-H peaks are HSQC-silent and land here too: a
+    /// as exchangeable (OH, NH, SH, SeH). Some C-H peaks are HSQC-silent and land here too: a
     /// terminal alkyne C-H (one-bond coupling about 250 Hz, far from the usual 145 Hz
     /// setting), very weak peaks, and H on P, Si or B. The chemist decides.
     NoHsqcPartner,
@@ -106,7 +106,8 @@ struct ProtonClassification {
 /// nmr1d::solvent_peaks.
 [[nodiscard]] core::Result<ProtonClassification> classify_protons(const ProtonSpectra& spectra);
 
-/// A suggested number of H on O, N or S (exchangeable protons), for the chemist to confirm.
+/// A suggested number of H on O, N, S or Se (exchangeable protons; chem::exchangeable_hydrogens
+/// counts them in a candidate), for the chemist to confirm.
 struct ExchangeableCount {
     /// Protons of the Exchangeable and NoHsqcPartner peaks.
     int min = 0;

@@ -4,6 +4,7 @@
 // read in ARISE with each atom carrying the hydrogens the entry bonds to it.
 
 #include "arise/chem/molecule.hpp"
+#include "arise/chem/perception.hpp"
 #include "bmrb_cases.hpp"
 
 #include <gtest/gtest.h>
@@ -71,6 +72,24 @@ std::string assignment_difference(const BmrbCase& bmrb) {
 TEST(BmrbReference, AssignedAtomsAreTheListsNucleus) {
     for (const auto& bmrb : bmrb_cases()) {
         EXPECT_EQ(assignment_difference(bmrb), "") << bmrb.id();
+    }
+}
+
+TEST(BmrbReference, ExchangeableHydrogensAreTheEntrysHOnONSAndSe) {
+    // The entry's own bonds put each H on an atom; chem::exchangeable_hydrogens must count
+    // exactly those on O, N, S and Se.
+    for (const auto& bmrb : bmrb_cases()) {
+        const auto molecule = arise::chem::parse_smiles(bmrb.smiles);
+        ASSERT_TRUE(molecule) << bmrb.id();
+        int expected = 0;
+        for (std::size_t atom = 0; atom < bmrb.hydrogens.size(); ++atom) {
+            const auto element = molecule.value().atoms()[atom].element;
+            if (element == arise::chem::Element::O || element == arise::chem::Element::N ||
+                element == arise::chem::Element::S || element == arise::chem::Element::Se) {
+                expected += bmrb.hydrogens[atom];
+            }
+        }
+        EXPECT_EQ(arise::chem::exchangeable_hydrogens(molecule.value()), expected) << bmrb.id();
     }
 }
 

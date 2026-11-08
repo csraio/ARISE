@@ -18,6 +18,12 @@ namespace arise::chem {
 [[nodiscard]] std::optional<nmr1d::CarbonType> carbon_type(const Molecule& molecule,
                                                            std::size_t atom) noexcept;
 
+/// Hydrogens on O, N, S and Se (Molecule::hydrogen_count of each): the protons that
+/// exchange with D2O (OH, NH, SH, SeH), so the number a chemist can confirm from a D2O shake
+/// or from 1H peaks without an HSQC partner (hsqc::suggest_exchangeable_count). H on P, Si
+/// or B does not exchange and is not counted. The chemist's definition, 2026-11-07.
+[[nodiscard]] int exchangeable_hydrogens(const Molecule& molecule) noexcept;
+
 /// Aromatic rings, read from Kekulé SMILES:
 /// - six-membered rings of C/N where every ring atom has one double bond (benzene,
 ///   pyridine);

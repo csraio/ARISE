@@ -554,7 +554,7 @@ def named_compounds():
 
 # Test helpers in the hand-written tests (SPEC_DIRS) whose first argument is a SMILES literal.
 SPEC_HELPERS = ("parse_smiles", "parse_ok", "parse", "expect_error", "groups", "environments",
-                "carbon_class_sizes", "topological", "verdict")
+                "carbon_class_sizes", "topological", "verdict", "exchangeable")
 SPEC_DIRS = ("tests/chem", "tests/filter")
 
 

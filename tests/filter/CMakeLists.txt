@@ -1,4 +1,5 @@
 add_executable(arise_filter_tests
+    exchangeable_test.cpp
     groups_test.cpp
     holdout_test.cpp)
 
