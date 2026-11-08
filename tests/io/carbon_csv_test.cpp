@@ -35,8 +35,7 @@ void expect_error(Parser parse, std::string_view text, ErrorCode code,
 }
 
 // ---- 13C ------------------------------------------------------------------------
-// Ethylbenzene in CDCl3, approximately (SDBS): ipso C 144.2, aromatic CH 128.4, 127.9,
-// 125.7, CH2 29.0, CH3 15.6 ppm. Only the shape of the data matters here.
+// Illustrative shifts, not measured data. Only the shape of the data matters here.
 
 TEST(CarbonCsv, ParsesShiftsInFileOrder) {
     const auto result = parse_carbon_csv("shift_ppm\n144.2\n128.4\n29.0\n15.6\n");

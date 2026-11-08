@@ -46,11 +46,13 @@ struct SolventPeaks {
     /// Residual (partly protonated solvent) peaks, ascending; never empty.
     std::vector<core::Ppm> residual;
     /// Water (H2O, and HDO where the tables give it), ascending; empty when the tables do
-    /// not agree on a value. Water moves with temperature and concentration, so a peak here
-    /// is "possibly water", never certainly.
+    /// not agree on a value. The water shift varies with temperature and other conditions
+    /// (the sources' own statements, quoted in data/solvent_peaks.tsv), so a peak here is
+    /// "possibly water", never certainly.
     std::vector<core::Ppm> water;
-    /// True when the solvent carries deuterium on O, N or S (D2O, CD3OD, TFE-d3): it swaps a
-    /// solute's OH/NH/SH protons for deuterium, so they may not be seen at all.
+    /// True when the solvent carries deuterium on O, N or S in its PubChem structure (D2O,
+    /// CD3OD, TFE-d3). hsqc::suggest_exchangeable_count then leaves the count open (the
+    /// chemist's decision, 2026-11-01).
     bool exchanges_labile_h = false;
 
     friend bool operator==(const SolventPeaks&, const SolventPeaks&) = default;

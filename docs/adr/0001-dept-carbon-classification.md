@@ -36,8 +36,8 @@ needed. DEPT-135 and DEPT-90 are each optional.
 ## Consequences
 - `filter` can later compare the counts of C/CH/CH2/CH3 against each candidate
   structure, a strong and cheap constraint.
-- Not detected: a DEPT-135 phased upside down when no DEPT-90 is supplied, and weak
-  breakthrough peaks in DEPT-90 that users did not remove. A CDCl3 solvent peak is
-  correctly reported as C, so users should leave solvent peaks out of the 13C list.
+- Not detected: a DEPT-135 phased upside down when no DEPT-90 is supplied, and peaks in
+  a DEPT-90 list that are not CH. CDCl3 has no H, so its peak is reported as C; users
+  should leave solvent peaks out of the 13C list.
 - The 0.05 ppm default is a convention, not a measured constant. Callers can lower it
   for crowded spectra.

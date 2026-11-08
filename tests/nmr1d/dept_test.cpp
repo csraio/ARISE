@@ -56,8 +56,8 @@ void expect_invalid(const DeptSpectra& spectra, const std::vector<std::string>& 
     }
 }
 
-// Ethylbenzene in CDCl3, approximately (SDBS): ipso C 144.2; aromatic CH 128.4, 127.9,
-// 125.7; CH2 29.0; CH3 15.6 ppm. The classification depends only on the pattern.
+// Illustrative shifts, not measured data, for ethylbenzene's carbon types (one C, three
+// aromatic CH environments, CH2, CH3). The classification depends only on the pattern.
 std::vector<CarbonPeak> ethylbenzene() {
     return carbons({144.2, 128.4, 127.9, 125.7, 29.0, 15.6});
 }
@@ -162,7 +162,7 @@ TEST(Dept, Dept90AloneFindsOnlyMethines) {
 }
 
 TEST(Dept, EmptyDept90MeansNoMethines) {
-    // 2-butanone, approximately (SDBS): C=O 209.3, CH2 36.9, CH3 29.4, CH3 7.9 ppm.
+    // Illustrative shifts, not measured data, for 2-butanone's carbons (C=O, CH2, 2 CH3).
     const auto butanone = carbons({209.3, 36.9, 29.4, 7.9});
     const std::vector<DeptPeak> dept135{dept(36.9, -1.0), dept(29.4, 1.0), dept(7.9, 0.9)};
     const auto result = classify_carbons(

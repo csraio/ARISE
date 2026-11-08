@@ -393,7 +393,8 @@ std::optional<std::size_t> identical_pair(const std::vector<std::size_t>& groups
 }
 
 // Whether the substituents of `atom` other than `skip` are two *different* groups. A
-// nitrogen's lone pair counts as a group, so a C=N nitrogen always qualifies.
+// nitrogen's lone pair counts as a group (the chemist's rule, 2026-10-31), so a C=N
+// nitrogen always qualifies.
 bool two_different_groups(const Molecule& molecule, std::size_t atom, std::size_t skip,
                           const std::vector<int>& labels) {
     const auto heavy = heavy_neighbors(molecule, atom, skip);
@@ -410,9 +411,53 @@ bool two_different_groups(const Molecule& molecule, std::size_t atom, std::size_
     return heavy.size() == 1;  // one group and one H; two H are identical
 }
 
-// E/Z: identical groups on one end of a non-aromatic C=C or C=N, different on the other.
+// How a split is applied: always (fewest and most), or only in the range (most).
+enum class Strength : std::uint8_t { Always, Range };
+
+// Whether `atom` has a single bond to a nitrogen other than `skip`.
+bool has_single_bond_to_nitrogen(const Molecule& molecule, std::size_t atom, std::size_t skip) {
+    const auto bonds = molecule.bonds_of(atom);
+    return std::any_of(bonds.begin(), bonds.end(), [&](std::size_t bond) {
+        const auto other = molecule.neighbor(bond, atom);
+        return other != skip && order_of(molecule, bond) == BondOrder::Single &&
+               molecule.atoms()[other].element == Element::N;
+    });
+}
+
+// Number of double bonds at `atom`.
+std::size_t double_bonds(const Molecule& molecule, std::size_t atom) {
+    const auto bonds = molecule.bonds_of(atom);
+    return static_cast<std::size_t>(std::count_if(bonds.begin(), bonds.end(), [&](std::size_t b) {
+        return order_of(molecule, b) == BondOrder::Double;
+    }));
+}
+
+// The strength of the E/Z split of the identical pair on `end` across its double bond to
+// `other`, or none. The chemist's rules (2026-10-31, revised 2026-11-08 against
+// nmrshiftdb2's assigned spectra; Reference.AlwaysSplitCarbonsAreSeparatePeaksWhere-
+// Nmrshiftdb2ListsBoth):
+// - C=N whose N is charged or carries a second double bond (diazo C=N+=N-): no split;
+// - amidine/guanidine C=N (the carbon end also bonded singly to an N) and C=C with an end
+//   bonded singly to an N (enamines, enaminones, ketene aminals): a range;
+// - any other C=C or C=N: always.
+std::optional<Strength> ez_strength(const Molecule& molecule, std::size_t end, std::size_t other) {
+    const auto& atoms = molecule.atoms();
+    if (atoms[other].element == Element::N) {
+        if (atoms[other].charge != 0 || double_bonds(molecule, other) > 1) {
+            return std::nullopt;
+        }
+        return has_single_bond_to_nitrogen(molecule, end, other) ? Strength::Range
+                                                                 : Strength::Always;
+    }
+    const bool amino = has_single_bond_to_nitrogen(molecule, other, end) ||
+                       has_single_bond_to_nitrogen(molecule, end, other);
+    return amino ? Strength::Range : Strength::Always;
+}
+
+// E/Z: identical groups on one end of a non-aromatic C=C or C=N, different on the other,
+// of the given strength.
 std::vector<Pick> ez_splits(const Molecule& molecule, const Aromaticity& aromaticity,
-                            const std::vector<int>& labels) {
+                            const std::vector<int>& labels, Strength strength) {
     std::vector<Pick> picks;
     const auto& atoms = molecule.atoms();
     for (std::size_t b = 0; b < molecule.bonds().size(); ++b) {
@@ -429,7 +474,8 @@ std::vector<Pick> ez_splits(const Molecule& molecule, const Aromaticity& aromati
             }
             const auto pair = identical_pair(heavy_neighbors(molecule, end, other), labels);
             if (pair.has_value() && molecule.hydrogen_count(end) == 0 &&
-                two_different_groups(molecule, other, end, labels)) {
+                two_different_groups(molecule, other, end, labels) &&
+                ez_strength(molecule, end, other) == strength) {
                 picks.push_back(Pick{.atom = *pair});
             }
         }
@@ -439,8 +485,11 @@ std::vector<Pick> ez_splits(const Molecule& molecule, const Aromaticity& aromati
 
 enum class Barrier : std::uint8_t { Slow, Borderline };
 
-// The C=O/C=S (or vinylogous) partner that slows rotation about N's bond to it, with how
-// slow: amides and thioamides are slow; carbamates, ureas and enaminones borderline.
+// The C=O/C=S (or vinylogous) partner of an amide-type N, with how its identical N-groups
+// split: the chemist's rules (2026-10-31): amides and thioamides always (Slow);
+// carbamates, ureas and enaminones in the range only (Borderline). Revised 2026-11-08
+// against nmrshiftdb2: an N whose two identical groups each carry a double bond (N-acyl
+// azoles such as N-acetylpyrrole or an N-acyl triazole) gives a range (rotation_splits).
 std::optional<std::pair<std::size_t, Barrier>> rotation_partner(const Molecule& molecule,
                                                                 std::size_t nitrogen) {
     const auto& atoms = molecule.atoms();
@@ -486,11 +535,18 @@ std::vector<Pick> rotation_splits(const Molecule& molecule, const std::vector<in
             continue;
         }
         const auto partner = rotation_partner(molecule, i);
-        if (!partner.has_value() || partner->second != barrier) {
+        if (!partner.has_value()) {
             continue;
         }
-        if (const auto pair =
-                identical_pair(heavy_neighbors(molecule, i, partner->first), labels)) {
+        const auto groups = heavy_neighbors(molecule, i, partner->first);
+        const auto pair = identical_pair(groups, labels);
+        if (!pair.has_value()) {
+            continue;
+        }
+        const bool conjugated_both = std::all_of(groups.begin(), groups.end(), [&](std::size_t g) {
+            return double_bonds(molecule, g) > 0;
+        });
+        if ((conjugated_both ? Barrier::Borderline : partner->second) == barrier) {
             picks.push_back(Pick{.atom = *pair});
         }
     }
@@ -529,7 +585,7 @@ bool is_stereocentre(const Molecule& molecule, std::size_t atom, const std::vect
 
 // Whether `atom` can be a prochiral centre: an sp3 C or Si, or a quaternary N+, with four
 // groups (Caabc); or a P, S, Se or I centre with at least three groups (ArI(OAc)2, the two
-// O of a sulfone). Neutral amines are left out: nitrogen inversion averages their groups.
+// O of a sulfone). Neutral amines are left out (the chemist's rule, 2026-10-31).
 bool can_be_prochiral(const Molecule& molecule, std::size_t atom, std::size_t groups) {
     const auto& a = molecule.atoms()[atom];
     switch (a.element) {
@@ -1126,7 +1182,7 @@ NmrEquivalence nmr_equivalence(const Molecule& molecule) {
     const auto aromaticity = perceive_aromaticity(molecule);
     const auto topological = refine(molecule, aromaticity, initial_labels(molecule));
     const auto hard = [&](const std::vector<int>& labels) {
-        auto picks = ez_splits(molecule, aromaticity, labels);
+        auto picks = ez_splits(molecule, aromaticity, labels, Strength::Always);
         auto rotation = rotation_splits(molecule, labels, Barrier::Slow);
         picks.insert(picks.end(), rotation.begin(), rotation.end());
         return picks;
@@ -1135,6 +1191,8 @@ NmrEquivalence nmr_equivalence(const Molecule& molecule) {
         auto picks = hard(labels);
         auto borderline = rotation_splits(molecule, labels, Barrier::Borderline);
         picks.insert(picks.end(), borderline.begin(), borderline.end());
+        auto weak_ez = ez_splits(molecule, aromaticity, labels, Strength::Range);
+        picks.insert(picks.end(), weak_ez.begin(), weak_ez.end());
         auto stereo = stereo_splits(molecule, labels);
         picks.insert(picks.end(), stereo.begin(), stereo.end());
         return picks;

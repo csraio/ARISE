@@ -18,10 +18,10 @@ namespace arise::chem {
 [[nodiscard]] std::optional<nmr1d::CarbonType> carbon_type(const Molecule& molecule,
                                                            std::size_t atom) noexcept;
 
-/// Hydrogens on O, N, S and Se (Molecule::hydrogen_count of each): the protons that
-/// exchange with D2O (OH, NH, SH, SeH), so the number a chemist can confirm from a D2O shake
-/// or from 1H peaks without an HSQC partner (hsqc::suggest_exchangeable_count). H on P, Si
-/// or B does not exchange and is not counted. The chemist's definition, 2026-11-07.
+/// Hydrogens on O, N, S and Se (Molecule::hydrogen_count of each): what ARISE counts as
+/// exchangeable, by the chemist's definition (2026-11-07); H on any other atom is not
+/// counted. The count a chemist confirms (from a D2O shake, or from 1H peaks without an
+/// HSQC partner, hsqc::suggest_exchangeable_count) is compared with it.
 [[nodiscard]] int exchangeable_hydrogens(const Molecule& molecule) noexcept;
 
 /// Aromatic rings, read from Kekulé SMILES:
@@ -46,28 +46,36 @@ namespace arise::chem {
 /// are not equivalent.
 [[nodiscard]] std::vector<std::size_t> symmetry_classes(const Molecule& molecule);
 
-/// Which atoms give the same NMR signal. Topological symmetry (symmetry_classes) is not
-/// enough: geometry, slow rotation and stereochemistry make some topologically equivalent
-/// groups inequivalent in NMR. Because ARISE must never make an "expert" call that could
-/// rule out the true structure, uncertain cases give a range between two partitions.
+/// Which atoms ARISE expects to give one NMR signal: topological symmetry
+/// (symmetry_classes) split further by the chemist's rules (2026-10-31, revised 2026-11-08).
+/// Because ARISE must never make an "expert" call that could rule out the true structure,
+/// a split the chemist is unsure of goes only into `most`, giving a range between two
+/// partitions. The `fewest` rules are checked against nmrshiftdb2's assigned spectra
+/// (Reference.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth); the `most`
+/// partition must never merge carbons nmrshiftdb2 lists at different shifts
+/// (Reference.EquivalentCarbonsNeverHaveDifferentExperimentalShifts).
 /// Classes are numbered from 0 in order of first appearance, as in symmetry_classes.
 struct NmrEquivalence {
-    /// Splits that always happen at room temperature (the fewest signals):
+    /// The fewest signals: splits the rules always apply.
     /// - E/Z: two identical groups on one end of a non-aromatic C=C or C=N whose other end
     ///   carries two different groups (a nitrogen lone pair counts as a group), e.g. the
-    ///   =C(CH3)2 methyls of linalool, the alpha-CH2 groups of an oxime;
-    /// - slow rotation: the two identical N-groups of an amide or thioamide (DMF).
+    ///   =C(CH3)2 methyls of linalool, the alpha-CH2 groups of an oxime; except the cases
+    ///   listed under `most`, and no split across a C=N whose N is charged or carries a
+    ///   second double bond (diazo C=N+=N-);
+    /// - the two identical N-groups of an amide or thioamide (DMF).
     std::vector<std::size_t> fewest;
-    /// Additionally, splits that may or may not show (the most signals):
-    /// - borderline rotation: identical N-groups of carbamates, ureas and enaminones;
+    /// The most signals: additionally, splits the rules leave open.
+    /// - identical N-groups of carbamates, ureas and enaminones;
+    /// - E/Z across an amidine/guanidine C=N, or across a C=C with an amino N on either end
+    ///   (enamines, enaminones, ketene aminals);
+    /// - identical groups on an amide-type N that each carry a double bond (N-acyl azoles);
     /// - when any stereocentre exists (sp3 C with four different groups, sulfoxide S,
     ///   P with three different groups) or at least two prochiral centres:
     ///   diastereotopic pairs (an sp3 C or Si, or a quaternary N+, carrying two identical
     ///   groups and two other different ones, e.g. valine's isopropyl; a P, S, Se or I
     ///   centre with one identical pair among three or more groups, e.g. ArI(OAc)2), and
-    ///   every stereocentre on its own, since
-    ///   unknown relative configuration can break a symmetry (mannitol has 3 carbon
-    ///   environments, sorbitol 6). Over-splitting only widens the range.
+    ///   every stereocentre on its own (relative configuration is not known, so a symmetry
+    ///   that depends on it is not assumed). Over-splitting only widens the range.
     std::vector<std::size_t> most;
 };
 

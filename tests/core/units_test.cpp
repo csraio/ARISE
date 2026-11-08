@@ -87,7 +87,8 @@ TEST(Units, ComparisonWithinUnit) {
 }
 
 TEST(Units, NegativeShiftsAreValid) {
-    // Shielded protons (e.g. inside a cyclophane ring) can resonate below TMS.
+    // Shifts below TMS exist (nmrshiftdb2's lowest listed 1H shift is negative:
+    // tests/data/reference/measurements.tsv).
     const Ppm shielded{-1.5};
     EXPECT_LT(shielded, Ppm{0.0});
 }
@@ -116,7 +117,7 @@ TEST(UnitsConversion, HzToPpmReferenceValue) {
 }
 
 TEST(UnitsConversion, PpmToHzReferenceValue) {
-    // CHCl3 residual at 7.26 ppm on a 400 MHz spectrometer sits 2904 Hz from TMS.
+    // A shift of 7.26 ppm on a 400 MHz spectrometer sits 2904 Hz from the reference.
     const auto result = to_hz(Ppm{7.26}, MegaHertz{400.0});
     ASSERT_TRUE(result.ok());
     EXPECT_NEAR(result.value().value(), 2904.0, 1e-9);
