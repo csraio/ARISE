@@ -102,6 +102,11 @@ inline constexpr std::array<std::string_view, @ARISE_NMRSHIFTDB_ALL_CHUNK_COUNT@
 inline constexpr std::array<std::string_view, @ARISE_GROUP_SHIFTS_CHUNK_COUNT@>
     kGroupShiftsChunks{
 @ARISE_GROUP_SHIFTS_CHUNKS@};
+// The 13C shifts of sp, sp2 and sp3 carbons measured from it by
+// tools/measure_hybridization_shifts.
+inline constexpr std::array<std::string_view, @ARISE_HYBRIDIZATION_SHIFTS_CHUNK_COUNT@>
+    kHybridizationShiftsChunks{
+@ARISE_HYBRIDIZATION_SHIFTS_CHUNKS@};
 
 // The residual-solvent and water 1H peaks (data/solvent_peaks.tsv) and every value the
 // three published tables give for them (scripts/build_solvent_peaks.py).

@@ -34,15 +34,7 @@ std::optional<double> parse_shift(std::string_view text) {
 // Python's statistics.quantiles(data, n=100, method="inclusive"), percentile i (1..99).
 double percentile(const std::vector<double>& sorted, std::size_t i) {
     constexpr std::size_t kParts = 100;
-    const std::size_t m = sorted.size() - 1;
-    const std::size_t j = i * m / kParts;
-    const std::size_t delta = (i * m) - (j * kParts);
-    if (j + 1 >= sorted.size()) {
-        return sorted[j];
-    }
-    return ((sorted[j] * static_cast<double>(kParts - delta)) +
-            (sorted[j + 1] * static_cast<double>(delta))) /
-           static_cast<double>(kParts);
+    return quantile(sorted, i, kParts);
 }
 
 // Whether a hallmark is measured separately for sp3 and unsaturated carbons.
@@ -55,19 +47,6 @@ bool is_sp3(const chem::Molecule& molecule, std::size_t atom) {
     return std::all_of(bonds.begin(), bonds.end(), [&](std::size_t bond) {
         return molecule.bonds()[bond].order == chem::BondOrder::Single;
     });
-}
-
-double median(const std::vector<double>& sorted) {
-    const std::size_t n = sorted.size();
-    return n % 2 == 1 ? sorted[n / 2] : (sorted[(n / 2) - 1] + sorted[n / 2]) / 2.0;
-}
-
-// One decimal, rounded half away from zero (no printf, so no locale or varargs).
-std::string fixed1(double value) {
-    const long long tenths = std::llround(value * 10.0);
-    const long long magnitude = tenths < 0 ? -tenths : tenths;
-    return (tenths < 0 ? "-" : "") + std::to_string(magnitude / 10) + "." +
-           std::to_string(magnitude % 10);
 }
 
 // The shifts of one hallmark and the DEPT types of the carbons carrying them.
@@ -95,6 +74,30 @@ void collect(const ShiftRecord& record, const chem::Molecule& molecule, ValuesBy
 }
 
 }  // namespace
+
+double quantile(const std::vector<double>& sorted, std::size_t i, std::size_t parts) {
+    const std::size_t m = sorted.size() - 1;
+    const std::size_t j = i * m / parts;
+    const std::size_t delta = (i * m) - (j * parts);
+    if (j + 1 >= sorted.size()) {
+        return sorted[j];
+    }
+    return ((sorted[j] * static_cast<double>(parts - delta)) +
+            (sorted[j + 1] * static_cast<double>(delta))) /
+           static_cast<double>(parts);
+}
+
+double median(const std::vector<double>& sorted) {
+    const std::size_t n = sorted.size();
+    return n % 2 == 1 ? sorted[n / 2] : (sorted[(n / 2) - 1] + sorted[n / 2]) / 2.0;
+}
+
+std::string fixed1(double value) {
+    const long long tenths = std::llround(value * 10.0);
+    const long long magnitude = tenths < 0 ? -tenths : tenths;
+    return (tenths < 0 ? "-" : "") + std::to_string(magnitude / 10) + "." +
+           std::to_string(magnitude % 10);
+}
 
 std::vector<KeyCarbon> key_carbons(const chem::Molecule& molecule) {
     std::vector<KeyCarbon> keys;

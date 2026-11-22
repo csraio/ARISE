@@ -513,6 +513,47 @@ def measure_nmrshiftdb(sd_path):
     return lines
 
 
+# Cut points of the hybridization shift measurement, in thousandths (statistics.quantiles
+# n=1000, inclusive): 0.1st, 1st, 99th and 99.9th percentile. Windows use 0.1-99.9 (the
+# chemist's decision, 2026-11-22).
+HYBRIDIZATION_CUTS = (1, 10, 990, 999)
+
+
+def measure_hybridization_shifts(extract_lines):
+    """Measurement lines for measurements.tsv: the 13C shifts of sp, sp2 and sp3 carbons
+    (RDKit's hybridization; uncharged carbons) over the extract lines with even nmrshiftdb2
+    IDs, one value per carbon per line. An independent check of tools/hybridization_shifts,
+    which counts bonds with ARISE's own reader."""
+    values = collections.defaultdict(list)
+    molecules = collections.defaultdict(set)
+    names = {1: "sp", 2: "sp2", 3: "sp3"}
+    for line in extract_lines:
+        record, smiles, shifts = line.split("\t")
+        if int(record) % 2:
+            continue
+        mol = Chem.MolFromSmiles(smiles)
+        shifts = shifts.split(" ")
+        if mol is None or mol.GetNumAtoms() != len(shifts):
+            continue
+        for atom in mol.GetAtoms():
+            code = HYBRIDIZATION_CODES.get(atom.GetHybridization(), 0)
+            shift = shifts[atom.GetIdx()]
+            if (atom.GetSymbol() == "C" and atom.GetFormalCharge() == 0 and code
+                    and shift not in (".", "-")):
+                values[code].append(float(shift))
+                molecules[code].add(int(record))
+    lines = []
+    for code in sorted(values):
+        data = sorted(values[code])
+        cuts = statistics.quantiles(data, n=1000, method="inclusive")
+        numbers = [data[0]] + [cuts[c - 1] for c in HYBRIDIZATION_CUTS[:2]]
+        numbers += [statistics.median(data)] + [cuts[c - 1] for c in HYBRIDIZATION_CUTS[2:]]
+        numbers.append(data[-1])
+        lines.append(f"hybridization-shift\t{names[code]}\t{len(data)}\t{len(molecules[code])}\t"
+                     + "\t".join(f"{x:.1f}" for x in numbers))
+    return lines
+
+
 # ---- PubChem + RDKit oracle -------------------------------------------------------------
 
 
@@ -1495,8 +1536,11 @@ def main():
          "# NMRSHIFTDB2_LICENSE.txt) over in-scope records that pass the InChI check.",
          "# shift-range: nucleus, lowest and highest listed shift (ppm).",
          "# cn-shift: class (CN_CLASSES in the builder), n, median, 5th and 95th percentile",
-         "# (statistics.quantiles, inclusive method) of the C=N carbon shift (ppm)."]
-        + measure_nmrshiftdb(args.nmrshiftdb),
+         "# (statistics.quantiles, inclusive method) of the C=N carbon shift (ppm).",
+         "# hybridization-shift: sp/sp2/sp3 (RDKit, uncharged carbons) over the 13C extract's",
+         "# lines with even IDs: n carbons, molecules, min, 0.1st, 1st percentile, median,",
+         "# 99th, 99.9th percentile, max (ppm; statistics.quantiles n=1000, inclusive)."]
+        + measure_nmrshiftdb(args.nmrshiftdb) + measure_hybridization_shifts(nmr_all),
         [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
     # What the hand-written tests read by name: PubChem compounds, rule-made compounds and
     # the named syntax cases.

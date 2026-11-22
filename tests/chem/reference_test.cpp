@@ -14,7 +14,9 @@
 #include "arise/io/peak_csv.hpp"
 #include "arise/io/pubchem.hpp"
 #include "group_shifts.hpp"
+#include "hybridization_shifts.hpp"
 #include "reference_fixtures.hpp"
+#include "test_molecules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -1688,6 +1690,99 @@ TEST(Provenance, GroupShiftsAreRecomputedFromTheExtract) {
     EXPECT_EQ(arise::test::join_chunks(arise::test::kGroupShiftsChunks), measured)
         << "rerun build/dev/tools/arise_measure_group_shifts";
 #endif
+}
+
+// ---- Hybridization shifts (tools/hybridization_shifts) -----------------------------
+// The shift numbers in this test are arbitrary inputs, not measured values.
+
+TEST(HybridizationShifts, MeasuresEvenIdRecordsByArisesHybridization) {
+    using arise::chem::Hybridization;
+    using arise::test::compound_smiles;
+    const std::string extract = "# comment line\n2\t" + compound_smiles("Acetonitrile") +
+                                "\t10 20 .\n"
+                                "3\t" +
+                                compound_smiles("Acetonitrile") +
+                                "\t99 99 .\n"  // odd ID: hold-out
+                                "4\t" +
+                                compound_smiles("Methyl isocyanide") +
+                                "\t5 . 6\n"  // the charged carbon is unassigned
+                                "6\t" +
+                                compound_smiles("Propane") + "\t- 7 8\n";  // '-': not listed
+    const auto records = arise::tools::parse_shift_extract(extract);
+    ASSERT_EQ(records.size(), 4U);
+    const auto measured = arise::tools::measure_hybridization_shifts(records);
+    ASSERT_EQ(measured.size(), 2U);  // no sp2 carbon: no row
+    EXPECT_EQ(measured[0].hybridization, Hybridization::Sp);
+    EXPECT_EQ(measured[0].n, 1U);
+    EXPECT_EQ(measured[0].molecules, 1U);
+    EXPECT_EQ(measured[0].min, 20.0);
+    EXPECT_EQ(measured[0].max, 20.0);
+    EXPECT_EQ(measured[1].hybridization, Hybridization::Sp3);
+    EXPECT_EQ(measured[1].n, 4U);  // 10 (ID 2), 6 (ID 4), 7 and 8 (ID 6)
+    EXPECT_EQ(measured[1].molecules, 3U);
+    EXPECT_EQ(measured[1].min, 6.0);
+    EXPECT_EQ(measured[1].median, 7.5);
+    EXPECT_EQ(measured[1].max, 10.0);
+    EXPECT_EQ(arise::tools::to_tsv(measured).substr(0, 11), "sp\t1\t1\t20.0");
+}
+
+TEST(Provenance, HybridizationShiftsAreRecomputedFromTheExtract) {
+    // data/hybridization_shifts.tsv must be exactly what ARISE's hybridization measures over
+    // the committed nmrshiftdb2 extract, so no number in it can be typed or stale.
+#ifdef __EMSCRIPTEN__
+    GTEST_SKIP() << "measured offline; far slower under wasm checks";
+#else
+    const auto extract = arise::test::join_chunks(arise::test::kNmrshiftdbAllChunks);
+    const auto records = arise::tools::parse_shift_extract(extract);
+    const auto measured = std::string{arise::tools::hybridization_shifts_header()} +
+                          arise::tools::to_tsv(arise::tools::measure_hybridization_shifts(records));
+    EXPECT_EQ(arise::test::join_chunks(arise::test::kHybridizationShiftsChunks), measured)
+        << "rerun build/dev/tools/arise_measure_hybridization_shifts";
+#endif
+}
+
+// Differences between one hybridization_shifts.tsv row (`fields`) and RDKit's measurement
+// of the same hybridization (`rdkit`: n, molecules, then the seven shifts). Counts must be
+// equal; each shift may differ only by rounding of the last decimal.
+std::vector<std::string> hybridization_row_differences(const std::vector<std::string_view>& fields,
+                                                       const std::vector<std::string_view>& rdkit) {
+    constexpr std::size_t kFields = 10;
+    constexpr double kLastDecimal = 0.1001;
+    if (fields.size() != kFields || rdkit.size() != kFields - 1) {
+        return {"malformed row"};
+    }
+    std::vector<std::string> differences;
+    for (std::size_t i = 1; i < kFields; ++i) {
+        const bool count = i < 3;
+        if (count ? fields[i] != rdkit[i - 1]
+                  : std::abs(decimal(fields[i]) - decimal(rdkit[i - 1])) > kLastDecimal) {
+            differences.push_back("column " + std::to_string(i) + ": " + std::string{fields[i]} +
+                                  " vs RDKit " + std::string{rdkit[i - 1]});
+        }
+    }
+    return differences;
+}
+
+TEST(Provenance, HybridizationShiftsMatchRdkitsMeasurement) {
+    // The builder measures the same shifts with RDKit's hybridization and Python's
+    // statistics (measurements.tsv, "hybridization-shift").
+    std::map<std::string, std::vector<std::string_view>> rdkit;
+    for (auto& row : measurements("hybridization-shift")) {
+        rdkit.emplace(std::string{row[1]},
+                      std::vector<std::string_view>(row.begin() + 2, row.end()));
+    }
+    EXPECT_EQ(rdkit.size(), 3U);
+    std::size_t rows = 0;
+    for (const auto line :
+         data_lines(arise::test::join_chunks(arise::test::kHybridizationShiftsChunks))) {
+        const auto fields = split(line, '\t');
+        const auto found = rdkit.find(std::string{fields.front()});
+        ASSERT_NE(found, rdkit.end()) << line;
+        EXPECT_EQ(hybridization_row_differences(fields, found->second), std::vector<std::string>{})
+            << line;
+        ++rows;
+    }
+    EXPECT_EQ(rows, 3U);
 }
 
 TEST(Provenance, DocumentedGroupShiftsAreTheMeasuredOnes) {
