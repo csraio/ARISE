@@ -1117,7 +1117,7 @@ std::vector<std::string> string_literals(std::string_view source) {
         if (source.substr(i, 2) == "//") {
             i = std::min(source.find('\n', i), source.size());
         } else if (source[i] == '\'') {
-            i += source.substr(i + 1, 1) == "\\" ? 3 : 2;  // 'x' or '\x'
+            i += source.substr(i + 1, 1) == "\\" ? 3U : 2U;  // 'x' or '\x'
         } else if (source[i] == '"') {
             auto [literal, close] = read_literal(source, i);
             literals.push_back(std::move(literal));
