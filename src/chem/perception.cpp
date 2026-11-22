@@ -102,6 +102,44 @@ std::vector<bool> ring_elements(const Molecule& molecule) {
     return allowed;
 }
 
+// Drops from `allowed` every atom with fewer than two ring bonds to other allowed atoms,
+// repeatedly (the 2-core): a cycle through allowed atoms keeps two such bonds at each of
+// its atoms, so no cycle is lost. Returns whether any allowed atom is left.
+bool keep_cycle_core(const Molecule& molecule, const std::vector<bool>& ring_bonds,
+                     std::vector<bool>& allowed) {
+    const std::size_t n = allowed.size();
+    std::vector<int> degree(n, 0);
+    std::vector<std::size_t> drop;
+    for (std::size_t atom = 0; atom < n; ++atom) {
+        if (!allowed[atom]) {
+            continue;
+        }
+        for (const auto bond : molecule.bonds_of(atom)) {
+            degree[atom] += ring_bonds[bond] && allowed[molecule.neighbor(bond, atom)] ? 1 : 0;
+        }
+        if (degree[atom] < 2) {
+            drop.push_back(atom);
+        }
+    }
+    std::size_t left = static_cast<std::size_t>(std::count(allowed.begin(), allowed.end(), true));
+    while (!drop.empty()) {
+        const auto atom = drop.back();
+        drop.pop_back();
+        if (!allowed[atom]) {
+            continue;
+        }
+        allowed[atom] = false;
+        --left;
+        for (const auto bond : molecule.bonds_of(atom)) {
+            const auto other = molecule.neighbor(bond, atom);
+            if (ring_bonds[bond] && allowed[other] && --degree[other] < 2) {
+                drop.push_back(other);
+            }
+        }
+    }
+    return left > 0;
+}
+
 // Every simple cycle of `size` atoms among the `allowed` atoms, each listed once in walking
 // order, starting at its smallest atom. Only ring bonds are walked: a cycle never uses a
 // bridge, so skipping bridges finds the same cycles in the same order, faster.
@@ -267,6 +305,9 @@ Aromaticity perceive_aromaticity(const Molecule& molecule) {
         allowed.push_back(pi || donor);
     }
     result.ring_bonds = ring_bonds(molecule);
+    if (!keep_cycle_core(molecule, result.ring_bonds, allowed)) {
+        return result;  // no cycle through atoms that can be aromatic
+    }
     auto pending = RingFinder{molecule, 6, result.ring_bonds, allowed}.find();
     auto five = RingFinder{molecule, 5, result.ring_bonds, allowed}.find();
     pending.insert(pending.end(), five.begin(), five.end());
@@ -311,23 +352,20 @@ struct Signatures {
 };
 
 // Dense ranks of `signatures`: equal signatures get equal ranks, ordered by value
-// (lexicographically, a shorter prefix first), so the ranks do not depend on atom order.
-std::vector<int> rank(const Signatures& signatures, std::vector<std::size_t>& order) {
-    const auto less = [&](std::size_t a, std::size_t b) {
-        const auto x = signatures[a];
-        const auto y = signatures[b];
-        return std::lexicographical_compare(x.begin(), x.end(), y.begin(), y.end());
-    };
+// (operator<), so the ranks do not depend on atom order.
+template <typename Signature>
+std::vector<int> rank(const std::vector<Signature>& signatures) {
     const std::size_t n = signatures.size();
-    order.resize(n);
+    std::vector<std::size_t> order(n);
     for (std::size_t i = 0; i < n; ++i) {
         order[i] = i;
     }
-    std::sort(order.begin(), order.end(), less);
+    std::sort(order.begin(), order.end(),
+              [&](std::size_t a, std::size_t b) { return signatures[a] < signatures[b]; });
     std::vector<int> result(n);
     int next = 0;
     for (std::size_t k = 0; k < n; ++k) {
-        if (k > 0 && less(order[k - 1], order[k])) {
+        if (k > 0 && signatures[order[k - 1]] < signatures[order[k]]) {
             ++next;
         }
         result[order[k]] = next;
@@ -335,11 +373,21 @@ std::vector<int> rank(const Signatures& signatures, std::vector<std::size_t>& or
     return result;
 }
 
+// Number of distinct values in `labels` (all non-negative).
 std::size_t distinct(const std::vector<int>& labels) {
-    std::vector<int> sorted = labels;
-    std::sort(sorted.begin(), sorted.end());
-    return static_cast<std::size_t>(
-        std::distance(sorted.begin(), std::unique(sorted.begin(), sorted.end())));
+    if (labels.empty()) {
+        return 0;
+    }
+    std::vector<bool> seen(
+        static_cast<std::size_t>(*std::max_element(labels.begin(), labels.end())) + 1, false);
+    std::size_t count = 0;
+    for (const int label : labels) {
+        if (!seen[static_cast<std::size_t>(label)]) {
+            seen[static_cast<std::size_t>(label)] = true;
+            ++count;
+        }
+    }
+    return count;
 }
 
 bool is_carbonyl_carbon(const Molecule& molecule, std::size_t atom) {
@@ -421,26 +469,22 @@ std::vector<int> initial_labels(const Molecule& molecule,
         shared[molecule.bonds()[bond].first] = true;
         shared[molecule.bonds()[bond].second] = true;
     }
-    Signatures signatures;
+    std::vector<std::array<int, 5>> signatures;
+    signatures.reserve(atoms.size());
     for (std::size_t i = 0; i < atoms.size(); ++i) {
         const auto bonds = molecule.bonds_of(i);
         const auto heavy_degree = std::count_if(bonds.begin(), bonds.end(), [&](std::size_t b) {
             return is_heavy(molecule, molecule.neighbor(b, i));
         });
-        signatures.values.insert(
-            signatures.values.end(),
-            {
-                static_cast<int>(atoms[i].element),
-                atoms[i].isotope,
-                shared[i] && molecule.bonds_of(i).size() == 1 ? kDelocalizedCharge
-                                                              : atoms[i].charge,
-                molecule.hydrogen_count(i),
-                static_cast<int>(heavy_degree),
-            });
-        signatures.close();
+        signatures.push_back({
+            static_cast<int>(atoms[i].element),
+            atoms[i].isotope,
+            shared[i] && molecule.bonds_of(i).size() == 1 ? kDelocalizedCharge : atoms[i].charge,
+            molecule.hydrogen_count(i),
+            static_cast<int>(heavy_degree),
+        });
     }
-    std::vector<std::size_t> order;
-    return rank(signatures, order);
+    return rank(signatures);
 }
 
 // Each atom's heavy neighbours with the code of the bond to them: the bond order, except
@@ -1658,13 +1702,15 @@ NmrEquivalence nmr_equivalence(const Molecule& molecule) {
 }
 
 int carbon_environments(const Molecule& molecule, const std::vector<std::size_t>& classes) {
-    std::set<std::size_t> carbon_classes;
+    std::vector<std::size_t> carbon_classes;
     for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {
         if (molecule.atoms()[i].element == Element::C) {
-            carbon_classes.insert(classes[i]);
+            carbon_classes.push_back(classes[i]);
         }
     }
-    return static_cast<int>(carbon_classes.size());
+    std::sort(carbon_classes.begin(), carbon_classes.end());
+    return static_cast<int>(std::distance(
+        carbon_classes.begin(), std::unique(carbon_classes.begin(), carbon_classes.end())));
 }
 
 std::string_view to_string(Group group) noexcept {

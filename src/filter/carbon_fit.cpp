@@ -5,7 +5,7 @@
 
 #include <algorithm>
 #include <array>
-#include <map>
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -25,14 +25,15 @@ std::string format_ppm(core::Ppm shift) {
 }
 
 // The DEPT type of each `most` carbon environment, in order of first appearance; empty for
-// an environment with no DEPT type (methane).
+// an environment with no DEPT type (methane). `classes` come from chem::nmr_equivalence,
+// numbered 0, 1, 2, ... below the atom count, so they index a per-class array.
 std::vector<std::optional<nmr1d::CarbonType>> environment_types(
     const chem::Molecule& molecule, const std::vector<std::size_t>& classes) {
-    std::map<std::size_t, std::size_t> seen;
+    std::vector<bool> seen(classes.size(), false);
     std::vector<std::optional<nmr1d::CarbonType>> types;
     for (std::size_t atom = 0; atom < classes.size(); ++atom) {
-        if (molecule.atoms()[atom].element == chem::Element::C &&
-            seen.emplace(classes[atom], types.size()).second) {
+        if (molecule.atoms()[atom].element == chem::Element::C && !seen[classes[atom]]) {
+            seen[classes[atom]] = true;
             types.push_back(chem::carbon_type(molecule, atom));
         }
     }
@@ -104,7 +105,9 @@ template <typename KindOf>
 std::vector<std::optional<std::size_t>> environment_kinds(const chem::Molecule& molecule,
                                                           const std::vector<std::size_t>& classes,
                                                           KindOf kind_of) {
-    std::map<std::size_t, std::size_t> seen;
+    // Per class: its index in `kinds`, or kNone before its first carbon.
+    constexpr auto kNone = std::numeric_limits<std::size_t>::max();
+    std::vector<std::size_t> index(classes.size(), kNone);
     std::vector<std::optional<std::size_t>> kinds;
     std::vector<bool> mixed;
     for (std::size_t atom = 0; atom < classes.size(); ++atom) {
@@ -112,12 +115,13 @@ std::vector<std::optional<std::size_t>> environment_kinds(const chem::Molecule& 
             continue;
         }
         const std::optional<std::size_t> kind = kind_of(atom);
-        const auto [it, added] = seen.emplace(classes[atom], kinds.size());
-        if (added) {
+        auto& e = index[classes[atom]];
+        if (e == kNone) {
+            e = kinds.size();
             kinds.push_back(kind);
             mixed.push_back(false);
-        } else if (kinds[it->second] != kind) {
-            mixed[it->second] = true;
+        } else if (kinds[e] != kind) {
+            mixed[e] = true;
         }
     }
     for (std::size_t e = 0; e < kinds.size(); ++e) {
