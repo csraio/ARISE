@@ -1773,8 +1773,8 @@ TEST(Provenance, HybridizationShiftsMatchRdkitsMeasurement) {
     }
     EXPECT_EQ(rdkit.size(), 3U);
     std::size_t rows = 0;
-    for (const auto line :
-         data_lines(arise::test::join_chunks(arise::test::kHybridizationShiftsChunks))) {
+    const auto text = arise::test::join_chunks(arise::test::kHybridizationShiftsChunks);
+    for (const auto line : data_lines(text)) {
         const auto fields = split(line, '\t');
         const auto found = rdkit.find(std::string{fields.front()});
         ASSERT_NE(found, rdkit.end()) << line;
