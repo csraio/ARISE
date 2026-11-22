@@ -217,6 +217,10 @@ TEST(SuggestHybridization, TypedSpPeaksLowerTheMinimumsButNotBelowZero) {
     const auto zero = suggest_hybridization(peaks, windows(), 0);
     ASSERT_TRUE(zero);
     EXPECT_EQ(zero.value().sp2.min, 1);
+    const auto many = suggest_hybridization(peaks, windows(), 3);  // more than either count
+    ASSERT_TRUE(many);
+    EXPECT_EQ(many.value().sp3, (CountRange{.min = 0, .max = 2}));
+    EXPECT_EQ(many.value().sp2, (CountRange{.min = 0, .max = 1}));
 }
 
 TEST(SuggestHybridization, PeaksOutsideBothRangesCountTowardNeitherAndAreNoted) {
@@ -229,6 +233,15 @@ TEST(SuggestHybridization, PeaksOutsideBothRangesCountTowardNeitherAndAreNoted) 
     EXPECT_TRUE(std::any_of(notes.begin(), notes.end(), [](const std::string& n) {
         return n.find("2 peaks lie outside both") != std::string::npos;
     }));
+    const auto one = suggest_hybridization(std::vector{peak(250.0)}, windows());
+    ASSERT_TRUE(one);
+    const auto& one_notes = one.value().notes;
+    EXPECT_TRUE(std::any_of(one_notes.begin(), one_notes.end(), [](const std::string& n) {
+        return n.find("1 peak lies outside both") != std::string::npos;
+    }));
+    const auto none = suggest_hybridization(std::vector{peak(20.0)}, windows());
+    ASSERT_TRUE(none);
+    EXPECT_EQ(none.value().notes.size(), 1U);  // only the sp range
 }
 
 TEST(SuggestHybridization, PeakOrderDoesNotChangeTheCounts) {
