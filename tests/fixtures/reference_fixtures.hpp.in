@@ -88,6 +88,22 @@ inline constexpr std::array<std::string_view, @ARISE_SYNTAX_CASES_CHUNK_COUNT@>
     kSyntaxCasesChunks{
 @ARISE_SYNTAX_CASES_CHUNKS@};
 
+// The benchmark case (plan 3d; scripts/build_reference_sets.py): an nmrshiftdb2 record's
+// spectrum (nmrshiftdb2 Database License) and its formula's PubChem search of 10,000+ rows
+// (PubChem data is in the public domain).
+inline constexpr std::array<std::string_view, @ARISE_BENCHMARK_SPECTRUM_CHUNK_COUNT@>
+    kBenchmarkSpectrumChunks{
+@ARISE_BENCHMARK_SPECTRUM_CHUNKS@};
+inline constexpr std::array<std::string_view, @ARISE_BENCHMARK_PUBCHEM_CHUNK_COUNT@>
+    kBenchmarkPubchemChunks{
+@ARISE_BENCHMARK_PUBCHEM_CHUNKS@};
+
+// The results the plan-3d speed work must not change (bench/arise_snapshot): one
+// fingerprint per candidate of every recorded search.
+inline constexpr std::array<std::string_view, @ARISE_EQUIVALENCE_SNAPSHOT_CHUNK_COUNT@>
+    kEquivalenceSnapshotChunks{
+@ARISE_EQUIVALENCE_SNAPSHOT_CHUNKS@};
+
 // The recorded PubChem formula searches (tests/data/pubchem_*.csv; PubChem data is in the
 // public domain), each preceded by a "## <formula>" line.
 inline constexpr std::array<std::string_view, @ARISE_PUBCHEM_SEARCHES_CHUNK_COUNT@>

@@ -28,7 +28,7 @@ Licensed under Apache-2.0 (`LICENSE`); third-party data keeps its own terms (`NO
 ## Repository layout
 - `include/arise/<module>/` public headers · `src/<module>/` implementation
 - `tests/<module>/` GoogleTest files mirroring `src/` · `tests/golden/` reference data
-- `bench/` Google Benchmark · `apps/cli/` native CLI · `apps/wasm/` Emscripten bindings
+- `bench/` in-house benchmark (arise_bench) · `apps/cli/` native CLI · `apps/wasm/` Emscripten bindings
 - `public/` web client (static HTML + JavaScript ES modules, no backend)
 - `scripts/` Python data builders · `research/` Python experiments
 - `data/` data compiled into the engine at configure time (e.g. measured group shifts),
@@ -62,6 +62,18 @@ opening a PR. Apple silicon is not a target; wasm is the cross-platform build, a
 result does not depend on the machine, so CI's wasm job covers it (no local wasm run
 needed). The asan test preset skips the heavy full-database tests (its "exclude" filter in
 CMakePresets.json): they take most of asan's time, and dev and release run them.
+
+Benchmark (plan 3d; development-only, `bench/`, built with the tests): `arise_bench` times
+cleaning + pruning of a real 10,000+-row PubChem search (the builder's benchmark case) and
+prints min/median/max per stage; `--budget-ms 100` exits 1 when the slowest scenario's
+median total is over budget. Time only optimized builds:
+    cmake --preset release && cmake --build --preset release && build/release/bench/arise_bench
+    cmake --preset wasm-release && cmake --build --preset wasm-release   # after emsdk_env.sh
+    "$EMSDK_NODE" build/wasm-release/bench/arise_bench.js
+`tests/golden/equivalence_snapshot.tsv` (written by `build/release/bench/arise_snapshot`)
+fingerprints nmr_equivalence and the carbon fit for every recorded candidate; speed work
+must leave it unchanged. Regenerate it only on purpose, saying why in the commit message.
+CI's `benchmark (report only)` job prints the times without failing on them.
 
 ## C++ conventions
 - C++20, no compiler extensions. Allowed: concepts, `std::span`, `<bit>`,
@@ -118,7 +130,8 @@ CMakePresets.json): they take most of asan's time, and dev and release run them.
 
 ## Dependencies
 - As few as possible. Pinned exact versions via CMake FetchContent in `third-party/`:
-  GoogleTest (tests only); Google Benchmark planned (bench only). Pinned tools:
+  GoogleTest (tests only); the benchmark uses an in-house timer (the chemist's choice,
+  2026-11-22), so no benchmark library. Pinned tools:
   clang-format/clang-tidy, Emscripten. No RDKit, libcurl or JS framework; whether
   RDKit is needed for 3D conformers is decided at the anisotropy stage.
   Ask before adding any new dependency.
