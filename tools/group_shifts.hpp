@@ -61,6 +61,16 @@ struct KeyCarbon {
 [[nodiscard]] std::vector<HallmarkShifts> measure_group_shifts(
     const std::vector<ShiftRecord>& records);
 
+/// Cut point `i` (1 .. parts-1) of Python's statistics.quantiles(sorted, n=parts,
+/// method="inclusive"); `sorted` must be ascending and non-empty.
+[[nodiscard]] double quantile(const std::vector<double>& sorted, std::size_t i, std::size_t parts);
+
+/// The median of ascending, non-empty `sorted` (Python's statistics.median).
+[[nodiscard]] double median(const std::vector<double>& sorted);
+
+/// `value` with one decimal, rounded half away from zero.
+[[nodiscard]] std::string fixed1(double value);
+
 /// The provenance header of group_shifts.tsv (comment lines).
 [[nodiscard]] std::string_view group_shifts_header();
 

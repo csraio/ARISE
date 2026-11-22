@@ -1313,6 +1313,40 @@ int exchangeable_hydrogens(const Molecule& molecule) noexcept {
     return total;
 }
 
+std::string_view to_string(Hybridization hybridization) noexcept {
+    switch (hybridization) {
+        case Hybridization::Sp:
+            return "sp";
+        case Hybridization::Sp2:
+            return "sp2";
+        case Hybridization::Sp3:
+            return "sp3";
+    }
+    return "";
+}
+
+std::optional<Hybridization> carbon_hybridization(const Molecule& molecule,
+                                                  std::size_t atom) noexcept {
+    const auto& carbon = molecule.atoms()[atom];
+    if (carbon.element != Element::C || carbon.charge != 0) {
+        return std::nullopt;
+    }
+    int doubles = 0;
+    for (const auto bond : molecule.bonds_of(atom)) {
+        const auto order = order_of(molecule, bond);
+        if (order == BondOrder::Triple) {
+            return Hybridization::Sp;
+        }
+        if (order == BondOrder::Double) {
+            ++doubles;
+        }
+    }
+    if (doubles >= 2) {
+        return Hybridization::Sp;
+    }
+    return doubles == 1 ? Hybridization::Sp2 : Hybridization::Sp3;
+}
+
 std::optional<nmr1d::CarbonType> carbon_type(const Molecule& molecule, std::size_t atom) noexcept {
     if (molecule.atoms()[atom].element != Element::C) {
         return std::nullopt;

@@ -14,7 +14,14 @@
   from `tests/data/reference/nmrshiftdb2_13c_all.tsv`, so it cannot drift or be edited by
   hand.
 
-`group_shifts.tsv` contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is
+- `hybridization_shifts.tsv`: the 13C shifts of sp, sp2 and sp3 carbons, measured over
+  nmrshiftdb2's assigned spectra by `tools/measure_hybridization_shifts` with ARISE's own
+  hybridization rule (`chem::carbon_hybridization`), for suggesting sp2/sp3 peak counts
+  when there is no DEPT. A test recomputes it from
+  `tests/data/reference/nmrshiftdb2_13c_all.tsv`, and another holds it to the builder's
+  independent RDKit measurement (`tests/data/reference/measurements.tsv`).
+
+`group_shifts.tsv` and `hybridization_shifts.tsv` contain information from nmrshiftdb2 (www.nmrshiftdb.org), which is
 made available here under the nmrshiftdb2 Database License (`NMRSHIFTDB2_LICENSE.txt`).
 Clause 4.5 of that licence requires software that relies on this data to be released under
 an OSI-approved open-source licence; ARISE is released under Apache-2.0 (`LICENSE`).

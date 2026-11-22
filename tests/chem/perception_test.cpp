@@ -20,14 +20,17 @@
 
 namespace {
 
+using arise::test::compound_hybridizations;
 using arise::test::compound_smiles;
 using arise::test::syntax_case;
 
 using arise::chem::aromatic_rings;
+using arise::chem::carbon_hybridization;
 using arise::chem::carbon_type;
 using arise::chem::count_group;
 using arise::chem::Element;
 using arise::chem::Group;
+using arise::chem::Hybridization;
 using arise::chem::Molecule;
 using arise::chem::symmetry_classes;
 using arise::nmr1d::CarbonType;
@@ -81,6 +84,131 @@ TEST(CarbonType, MethaneHasNoDeptType) {
 TEST(CarbonType, ExplicitHydrogenAtomsCount) {
     EXPECT_EQ(carbon_type(parse_ok(syntax_case("explicit hydrogen atoms on propane C1")), 1),
               CarbonType::CH2);
+}
+
+// ---- Carbon hybridization --------------------------------------------------------
+// Expected values are RDKit's hybridizations of the PubChem compounds
+// (test_compounds.tsv, compound_hybridizations), written as 1 sp, 2 sp2, 3 sp3, 0 none.
+
+int hybridization_code(const Molecule& molecule, std::size_t atom) {
+    const auto hybridization = carbon_hybridization(molecule, atom);
+    if (!hybridization) {
+        return 0;
+    }
+    switch (*hybridization) {
+        case Hybridization::Sp:
+            return 1;
+        case Hybridization::Sp2:
+            return 2;
+        case Hybridization::Sp3:
+            return 3;
+    }
+    return 0;
+}
+
+std::vector<int> hybridization_codes(std::string_view name) {
+    const auto molecule = parse_ok(compound_smiles(name));
+    std::vector<int> codes;
+    for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {
+        codes.push_back(hybridization_code(molecule, i));
+    }
+    return codes;
+}
+
+TEST(CarbonHybridization, NamesEachHybridization) {
+    EXPECT_EQ(to_string(Hybridization::Sp), "sp");
+    EXPECT_EQ(to_string(Hybridization::Sp2), "sp2");
+    EXPECT_EQ(to_string(Hybridization::Sp3), "sp3");
+}
+
+TEST(CarbonHybridization, TripleBondsGiveSp) {
+    for (const auto* name : {"Acetonitrile", "Hydrogen Cyanide"}) {
+        EXPECT_EQ(hybridization_codes(name), compound_hybridizations(name)) << name;
+    }
+}
+
+TEST(CarbonHybridization, TwoDoubleBondsGiveSp) {
+    // The central carbon of an allene and of a ketene.
+    for (const auto* name :
+         {"2,3-Pentadiene, 2-methyl-", "Methylketene", "Methyl 5-methylhexa-2,3-dienoate"}) {
+        const auto expected = compound_hybridizations(name);
+        EXPECT_NE(std::find(expected.begin(), expected.end(), 1), expected.end()) << name;
+        EXPECT_EQ(hybridization_codes(name), expected) << name;
+    }
+}
+
+TEST(CarbonHybridization, OneDoubleBondGivesSp2) {
+    // Includes the C=N carbons of an oxime and of a diazo compound.
+    for (const auto* name : {
+             "Acetone",
+             "Formaldehyde",
+             "Propylene",
+             "Acetone, oxime",
+             "3-Diazo-2,2,4,4-tetramethylpentane",
+         }) {
+        EXPECT_EQ(hybridization_codes(name), compound_hybridizations(name)) << name;
+    }
+}
+
+TEST(CarbonHybridization, KekuleAromaticRingsGiveSp2) {
+    for (const auto* name : {"Benzene", "Pyridine", "Furan", "Naphthalene", "Indole"}) {
+        EXPECT_EQ(hybridization_codes(name), compound_hybridizations(name)) << name;
+    }
+}
+
+TEST(CarbonHybridization, SingleBondsOnlyGiveSp3) {
+    for (const auto* name : {"Methane", "Propane", "Cyclohexane", "Neopentane", "Methanol"}) {
+        EXPECT_EQ(hybridization_codes(name), compound_hybridizations(name)) << name;
+    }
+}
+
+TEST(CarbonHybridization, NonCarbonAtomsHaveNone) {
+    const auto molecule = parse_ok(compound_smiles("Acetonitrile"));
+    ASSERT_EQ(molecule.atoms().size(), 3U);
+    EXPECT_EQ(molecule.atoms()[2].element, Element::N);
+    EXPECT_EQ(carbon_hybridization(molecule, 2), std::nullopt);
+}
+
+TEST(CarbonHybridization, ChargedCarbonsAreLeftUnassigned) {
+    // The bond rule disagrees with RDKit only on charged carbons (carbocations, ylide
+    // carbanions), so ARISE does not assign them (they may count as any hybridization).
+    // Methyl isocyanide's carbon carries a -1 charge.
+    const auto molecule = parse_ok(compound_smiles("Methyl isocyanide"));
+    ASSERT_EQ(molecule.atoms()[0].element, Element::C);
+    ASSERT_NE(molecule.atoms()[0].charge, 0);
+    EXPECT_EQ(carbon_hybridization(molecule, 0), std::nullopt);
+    EXPECT_EQ(carbon_hybridization(molecule, 2), Hybridization::Sp3);  // the methyl
+}
+
+// RDKit's codes for the test compound `name` (atoms of `molecule`), with charged carbons
+// set to 0, since ARISE leaves them unassigned.
+std::vector<int> rdkit_codes_for_uncharged(std::string_view name, const Molecule& molecule) {
+    auto codes = compound_hybridizations(name);
+    for (std::size_t i = 0; i < codes.size() && i < molecule.atoms().size(); ++i) {
+        if (molecule.atoms()[i].charge != 0) {
+            codes[i] = 0;
+        }
+    }
+    return codes;
+}
+
+TEST(CarbonHybridization, MatchesRdkitOnEveryUnchargedCarbonOfTheTestCompounds) {
+    std::size_t carbons = 0;
+    for (const auto& name : arise::test::compound_names()) {
+        const auto parsed = arise::chem::parse_smiles(compound_smiles(name));
+        if (!parsed.ok()) {
+            continue;  // mixtures: the reader's own tests cover them
+        }
+        const auto& molecule = parsed.value();
+        std::vector<int> ours;
+        for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {
+            ours.push_back(hybridization_code(molecule, i));
+        }
+        carbons += static_cast<std::size_t>(
+            std::count_if(ours.begin(), ours.end(), [](int code) { return code != 0; }));
+        EXPECT_EQ(ours, rdkit_codes_for_uncharged(name, molecule)) << name;
+    }
+    EXPECT_GT(carbons, 500U);
 }
 
 // ---- Aromatic rings --------------------------------------------------------------

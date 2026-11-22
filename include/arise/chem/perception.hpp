@@ -18,6 +18,20 @@ namespace arise::chem {
 [[nodiscard]] std::optional<nmr1d::CarbonType> carbon_type(const Molecule& molecule,
                                                            std::size_t atom) noexcept;
 
+/// Hybridization of a carbon atom; the value is the number of p orbitals mixed in (sp = 1).
+enum class Hybridization : std::uint8_t { Sp = 1, Sp2 = 2, Sp3 = 3 };
+
+/// "sp", "sp2", "sp3".
+[[nodiscard]] std::string_view to_string(Hybridization hybridization) noexcept;
+
+/// The hybridization of carbon atom `atom`, counted from its bonds in the Kekulé structure
+/// (the chemist's rule, 2026-11-21): a triple bond or two double bonds give sp, one double
+/// bond gives sp2, single bonds only give sp3. Empty for non-carbon atoms and for charged
+/// carbons, the only carbons where the count disagrees with RDKit's hybridization
+/// (Reference.CarbonHybridizationsMatchRdkit); an unassigned carbon may count as any type.
+[[nodiscard]] std::optional<Hybridization> carbon_hybridization(const Molecule& molecule,
+                                                                std::size_t atom) noexcept;
+
 /// Hydrogens on O, N, S and Se (Molecule::hydrogen_count of each): what ARISE counts as
 /// exchangeable, by the chemist's definition (2026-11-07); H on any other atom is not
 /// counted. The count a chemist confirms (from a D2O shake, or from 1H peaks without an
