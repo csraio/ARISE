@@ -4,6 +4,7 @@ add_library(arise_io
     correlation_csv.cpp
     csv_table.cpp
     number.cpp
+    pasted_peaks.cpp
     peak_csv.cpp
     pubchem.cpp
     smiles_text.cpp

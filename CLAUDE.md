@@ -44,7 +44,8 @@ Modules (namespace `arise::<module>`), dependencies point downward only:
 neither depends on the other → `chem` (in-house SMILES reader, molecule graph)
 → `filter` (DEPT counts, symmetry, functional groups; candidate-vs-spectrum checks)
 → `predict` (HOSE baseline) → `aniso` (conformers, ring currents) → `pipeline`
-→ `apps/*`. See `docs/adr/0003-hsqc-hmbc-modules.md`.
+(the web client's stateless calls, text in and JSON out; it uses `filter` and `io` until
+`predict` and `aniso` exist) → `apps/*`. See `docs/adr/0003-hsqc-hmbc-modules.md`.
 
 ## Build & test
     git config core.hooksPath .githooks      # once per clone

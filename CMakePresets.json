@@ -73,7 +73,7 @@
       "hidden": true,
       "filter": {
         "exclude": {
-          "name": "^(BenchmarkReference\\.|CarbonFitReference\\.|GroupSuggestionHoldout\\.|Reference\\.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth$|Provenance\\.GroupShiftsAreRecomputedFromTheExtract$|Provenance\\.HybridizationShiftsAreRecomputedFromTheExtract$|Reference\\.KeyAtomsMatchRdkitFragmentPatterns$|Reference\\.EveryOccurrenceHasItsHallmarksOnCarbon$)"
+          "name": "^(BenchmarkReference\\.|PipelineReference\\.|CarbonFitReference\\.|GroupSuggestionHoldout\\.|Reference\\.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth$|Provenance\\.GroupShiftsAreRecomputedFromTheExtract$|Provenance\\.HybridizationShiftsAreRecomputedFromTheExtract$|Reference\\.KeyAtomsMatchRdkitFragmentPatterns$|Reference\\.EveryOccurrenceHasItsHallmarksOnCarbon$)"
         }
       }
     },

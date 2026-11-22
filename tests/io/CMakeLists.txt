@@ -3,6 +3,7 @@ add_executable(arise_io_tests
     carbon_csv_test.cpp
     correlation_csv_test.cpp
     number_test.cpp
+    pasted_peaks_test.cpp
     peak_csv_test.cpp
     pubchem_test.cpp
     window_csv_test.cpp)

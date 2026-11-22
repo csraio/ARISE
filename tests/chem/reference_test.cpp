@@ -1270,6 +1270,9 @@ TEST(Provenance, NoTestContainsASmilesLiteral) {
         {"filter/groups_test.cpp", "C=O"},
         {"filter/groups_test.cpp", "C#N"},
         {"filter/groups_test.cpp", "O-C"},
+        // JSON's empty array, in the expected text of the web client's results.
+        {"pipeline/json_test.cpp", "[]"},
+        {"pipeline/json_test.cpp", ":[]"},
     };
     const auto is_allowed = [&allowed](const std::string& path, const std::string& word) {
         return std::any_of(allowed.begin(), allowed.end(), [&](const auto& entry) {
