@@ -58,7 +58,10 @@ neither depends on the other → `chem` (in-house SMILES reader, molecule graph)
 The wasm preset runs the tests under Node with UBSan, SAFE_HEAP, ASSERTIONS=2 and
 stack-overflow checks. CI runs dev, asan and release on Linux x86_64, dev and release on arm64, plus wasm.
 macOS (Apple clang) is not in CI: run the dev, asan and release presets locally before
-opening a PR. Apple silicon is not a target; wasm is the cross-platform build.
+opening a PR. Apple silicon is not a target; wasm is the cross-platform build, and its
+result does not depend on the machine, so CI's wasm job covers it (no local wasm run
+needed). The asan test preset skips the heavy full-database tests (its "exclude" filter in
+CMakePresets.json): they take most of asan's time, and dev and release run them.
 
 ## C++ conventions
 - C++20, no compiler extensions. Allowed: concepts, `std::span`, `<bit>`,

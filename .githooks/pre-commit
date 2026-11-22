@@ -61,8 +61,12 @@ if [ ! -f CMakeLists.txt ]; then
     exit 0
 fi
 
-echo "pre-commit: configuring, building and running tests..."
+# ARISE_GATE_TEST_PRESET is for scripts/verify_commit_gate.sh only: its throwaway
+# commits run the "gate-selftest" preset (all but the heavy full-database tests). Real
+# commits leave it unset and run every test.
+test_preset=${ARISE_GATE_TEST_PRESET:-dev}
+echo "pre-commit: configuring, building and running tests ($test_preset)..."
 cmake --preset dev
 cmake --build --preset dev
-ctest --preset dev --output-on-failure
+ctest --preset "$test_preset" --output-on-failure
 echo "pre-commit: all tests passed."
