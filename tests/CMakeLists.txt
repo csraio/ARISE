@@ -109,6 +109,18 @@ foreach(source ${ARISE_TEST_SOURCES})
     string(APPEND ARISE_SPEC_SOURCES_CHUNKS "${chunks}")
     math(EXPR ARISE_SPEC_SOURCES_CHUNK_COUNT "${ARISE_SPEC_SOURCES_CHUNK_COUNT} + ${count}")
 endforeach()
+# The benchmark case (plan 3d): its spectrum names the formula of its PubChem search.
+file(READ "${ARISE_REFERENCE_DIR}/benchmark_spectrum.tsv" ARISE_BENCHMARK_SPECTRUM)
+string(REGEX MATCH "\nformula\t([A-Za-z0-9]+)" _ "${ARISE_BENCHMARK_SPECTRUM}")
+if(NOT CMAKE_MATCH_1)
+    message(FATAL_ERROR "benchmark_spectrum.tsv names no formula")
+endif()
+arise_embed_chunks("${CMAKE_CURRENT_SOURCE_DIR}/golden/equivalence_snapshot.tsv"
+                   ARISE_EQUIVALENCE_SNAPSHOT_CHUNKS ARISE_EQUIVALENCE_SNAPSHOT_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/benchmark_spectrum.tsv"
+                   ARISE_BENCHMARK_SPECTRUM_CHUNKS ARISE_BENCHMARK_SPECTRUM_CHUNK_COUNT)
+arise_embed_chunks("${CMAKE_CURRENT_SOURCE_DIR}/data/pubchem_${CMAKE_MATCH_1}.csv"
+                   ARISE_BENCHMARK_PUBCHEM_CHUNKS ARISE_BENCHMARK_PUBCHEM_CHUNK_COUNT)
 configure_file(fixtures/reference_fixtures.hpp.in
                "${CMAKE_CURRENT_BINARY_DIR}/fixtures/reference_fixtures.hpp" @ONLY)
 add_library(arise_test_fixtures INTERFACE)
@@ -116,6 +128,9 @@ target_include_directories(arise_test_fixtures
     INTERFACE "${CMAKE_CURRENT_BINARY_DIR}/fixtures" "${CMAKE_CURRENT_SOURCE_DIR}/fixtures")
 
 add_subdirectory(core)
+if(ARISE_BUILD_BENCHMARKS)
+    add_subdirectory(bench)
+endif()
 add_subdirectory(io)
 add_subdirectory(nmr1d)
 add_subdirectory(hsqc)

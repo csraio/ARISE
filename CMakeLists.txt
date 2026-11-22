@@ -10,6 +10,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
 option(ARISE_BUILD_TESTS "Build the GoogleTest suites" ON)
+option(ARISE_BUILD_BENCHMARKS "Build the development-only benchmark (needs the tests)" ON)
 
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 include(AriseWarnings)
@@ -35,4 +36,7 @@ if(ARISE_BUILD_TESTS)
     enable_testing()
     add_subdirectory(tools)  # development-only measurement tools, never shipped
     add_subdirectory(tests)
+    if(ARISE_BUILD_BENCHMARKS)
+        add_subdirectory(bench)  # development-only timing of cleaning + pruning (plan 3d)
+    endif()
 endif()

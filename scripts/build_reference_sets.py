@@ -33,7 +33,9 @@ import importlib.util
 import json
 import re
 import statistics
+import shutil
 import sys
+import time
 import urllib.parse
 import urllib.request
 from pathlib import Path
@@ -795,6 +797,81 @@ def build_cleaning_oracle(formulas):
         for cid, smiles in pubchem_rows(REPO / "tests" / "data" / f"pubchem_{formula}.csv"):
             lines.append(f"{formula}\t{cid}\t{cleaning_verdict(smiles)}")
     return lines
+
+
+# ---- benchmark case (plan 3d) -----------------------------------------------------------
+
+# The benchmark cleans and prunes one real PubChem formula search of at least this many rows
+# (ADR 0002's target; the chemist's decision, 2026-11-22: one formula, 10,000+ rows).
+BENCHMARK_MIN_ROWS = 10000
+BENCHMARK_MAX_FORMULAS = 25  # formulas tried before the build gives up
+FORMULA_CACHE = PUBCHEM_CACHE / "formula"
+
+
+def pubchem_formula_csv(formula):
+    """PubChem's CID,ConnectivitySMILES CSV for `formula` (cached). PubChem sometimes answers
+    'Status: 500'; the request is retried, and the build stops if it keeps failing, so the
+    choice of formula never depends on a transient error."""
+    FORMULA_CACHE.mkdir(parents=True, exist_ok=True)
+    path = FORMULA_CACHE / f"{formula}.csv"
+    for attempt in range(4):
+        if path.exists() and path.read_text().startswith('"CID","ConnectivitySMILES"'):
+            return path
+        if attempt:
+            time.sleep(5 * attempt)
+        try:
+            download(PUBCHEM_URL.format(formula), path)
+        except OSError as error:
+            print(f"PubChem {formula}: {error}", file=sys.stderr)
+        time.sleep(0.25)  # PubChem allows at most 5 requests per second
+    sys.exit(f"PubChem kept failing for {formula}; rerun later")
+
+
+def benchmark_case(extract_lines):
+    """The benchmark's formula, PubChem list and spectrum. Formulas of fully assigned
+    nmrshiftdb2 extract records are tried from the most records to the fewest (ties by
+    formula); the first whose PubChem search has at least BENCHMARK_MIN_ROWS rows is taken.
+    Its record is the lowest-ID fully assigned one that is a cleaned PubChem candidate of
+    that search (same InChI skeleton). Returns the header lines (each tried formula and its
+    row count), the formula, and the data lines: record id, the candidate's PubChem SMILES,
+    then one 'peak' line per distinct shift with the DEPT types of its carbons (RDKit H
+    counts)."""
+    by_formula = collections.defaultdict(list)
+    for line in extract_lines:
+        record, smiles, shifts = line.split("\t")
+        values = shifts.split(" ")
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is None or "-" in values:
+            continue
+        by_formula[rdMolDescriptors.CalcMolFormula(mol)].append((int(record), mol, values))
+    order = sorted(by_formula, key=lambda f: (-len(by_formula[f]), f))
+    tried = []
+    for formula in order[:BENCHMARK_MAX_FORMULAS]:
+        path = pubchem_formula_csv(formula)
+        rows = pubchem_rows(path)
+        tried.append(f"# tried {formula}: {len(by_formula[formula])} records, {len(rows)} PubChem rows")
+        if len(rows) < BENCHMARK_MIN_ROWS:
+            continue
+        candidates = {}
+        for _, smiles in rows:
+            mol = Chem.MolFromSmiles(smiles)
+            if mol is not None and cleaning_verdict(smiles) == "kept":
+                candidates.setdefault(inchi_skeleton(Chem.MolToInchi(mol)), smiles)
+        for record, mol, values in sorted(by_formula[formula], key=lambda r: r[0]):
+            truth = candidates.get(inchi_skeleton(Chem.MolToInchi(mol)))
+            if truth is None:
+                continue
+            peaks = collections.defaultdict(set)
+            for atom in mol.GetAtoms():
+                if atom.GetSymbol() == "C":
+                    peaks[float(values[atom.GetIdx()])].add(
+                        ["C", "CH", "CH2", "CH3", "CH4"][atom.GetTotalNumHs()])
+            lines = [f"record\t{record}", f"structure\t{truth}"]
+            lines += [f"peak\t{shift:g}\t{' '.join(sorted(types))}"
+                      for shift, types in sorted(peaks.items())]
+            return tried, formula, path, lines
+    sys.exit("no nmrshiftdb2 formula has a PubChem search of "
+             f"{BENCHMARK_MIN_ROWS}+ rows among the first {BENCHMARK_MAX_FORMULAS}")
 
 
 # Compounds named by the chemist's question (charge-separated neutral molecules PubChem
@@ -1571,13 +1648,28 @@ def main():
     # The first three bring aromatic regioisomers; the last four bring the charge-separated
     # neutral molecules PubChem writes with formal charges (nitro, N-oxide, zwitterion,
     # isocyanide).
+    tried, bench_formula, bench_csv, bench_lines = benchmark_case(nmr_all)
+    shutil.copyfile(bench_csv, REPO / "tests" / "data" / f"pubchem_{bench_formula}.csv")
+    (OUT / "benchmark_spectrum.tsv").write_text(header(
+        ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",
+         "# available here under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt,",
+         f"# {LICENSE_URL}).",
+         "# The benchmark case (bench/, plan 3d): the first nmrshiftdb2 formula, by number of",
+         f"# fully assigned records, whose PubChem search has {BENCHMARK_MIN_ROWS}+ rows",
+         "# (tests/data/pubchem_<formula>.csv), and its lowest-ID record that is a cleaned",
+         "# candidate. Lines: formula; record (nmrshiftdb2 id); structure (the candidate's",
+         "# PubChem SMILES); peak (shift in ppm, DEPT types of its carbons from RDKit H counts).",
+         ] + tried + [f"formula\t{bench_formula}"] + bench_lines,
+        [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}", PUBCHEM_URL.format(bench_formula)]))
+
     formulas = ["C4H8O2", "C8H8O2", "C10H12O2", "C6H5NO2", "C5H5NO", "C3H9NO", "C2H5NO2"]
     oracle = build_oracle(formulas)
     (OUT / "pubchem_cleaning_oracle.tsv").write_text(header(
         ["# RDKit's verdict on every record of the recorded PubChem formula searches",
          "# (tests/data/pubchem_<formula>.csv): mixture, ion (net charge not zero), kept",
          "# (one net-neutral molecule) or unreadable. Columns: formula, CID, verdict."]
-        + build_cleaning_oracle(formulas), [PUBCHEM_URL.format(f) for f in formulas]))
+        + build_cleaning_oracle(formulas + [bench_formula]),
+        [PUBCHEM_URL.format(f) for f in formulas + [bench_formula]]))
     (OUT / "named_compounds.tsv").write_text(header(
         ["# Charge-separated neutral compounds looked up by name on PubChem (NAMED_COMPOUNDS",
          "# in the builder). Columns: name, CID, formula, ConnectivitySMILES."]

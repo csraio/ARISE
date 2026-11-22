@@ -1395,8 +1395,8 @@ TEST(Provenance, PubChemCleaningRemovesExactlyMixturesAndIons) {
                                ": RDKit " + std::string{fields[2]} + ", ARISE " + arise);
         }
     }
-    EXPECT_GT(checked, 8000U);
-    EXPECT_EQ(ours.size(), 7U);
+    EXPECT_GT(checked, 20000U);
+    EXPECT_EQ(ours.size(), 8U);  // seven oracle formulas and the benchmark's (plan 3d)
     expect_no_disagreements(problems, checked);
 }
 

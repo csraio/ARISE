@@ -80,6 +80,41 @@ jobs:
           cmake --build --preset wasm
           ctest --preset wasm
 
+  benchmark:
+    # Plan 3d: times cleaning + pruning of the 10,000+-row benchmark case, natively and in
+    # WebAssembly. Report only for now: it fails on errors, never on time, until ARISE is
+    # under the 100 ms budget with room to spare (then --budget-ms 100 is added).
+    name: benchmark (report only)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/emsdk
+          key: emsdk-${{ runner.os }}-${{ hashFiles('scripts/install_emsdk.sh') }}
+
+      - name: Install pinned emsdk
+        run: sh scripts/install_emsdk.sh
+
+      - name: Native (release)
+        run: |
+          cmake --preset release
+          cmake --build --preset release --target arise_bench
+          build/release/bench/arise_bench --runs 5
+
+      - name: WebAssembly (release, Node)
+        run: |
+          . "$HOME/.local/share/emsdk/emsdk_env.sh"
+          cmake --preset wasm-release
+          cmake --build --preset wasm-release
+          "$EMSDK_NODE" build/wasm-release/bench/arise_bench.js --runs 5
+
   lint:
     name: format + clang-tidy
     runs-on: ubuntu-24.04
