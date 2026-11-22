@@ -490,10 +490,38 @@ enum class Barrier : std::uint8_t { Slow, Borderline };
 // carbamates, ureas and enaminones in the range only (Borderline). Revised 2026-11-08
 // against nmrshiftdb2: an N whose two identical groups each carry a double bond (N-acyl
 // azoles such as N-acetylpyrrole or an N-acyl triazole) gives a range (rotation_splits).
+// Added 2026-11-09: the amino N of a nitrosamine (N-N=O) always splits its identical
+// groups. nmrshiftdb2 lists such pairs at different shifts in every case (11 of 11); the
+// literature attributes this to rotamers about the N-N bond, measured by 13C NMR (Haky,
+// Saavedra, Hilton, Org. Magn. Reson. 1983, 21, 79-82, doi:10.1002/omr.1270210202; Looney,
+// Phillips, Reilly, J. Am. Chem. Soc. 1957, 79, 6136-6142, doi:10.1021/ja01580a009,
+// "Nuclear Magnetic Resonance and Infrared Study of Hindered Rotation in Nitrosamines").
+// Whether carbon `k` starts the C=C-C(=O) of an enaminone N-C=C-C(=O).
+bool starts_enaminone(const Molecule& molecule, std::size_t k) {
+    const auto& atoms = molecule.atoms();
+    for (const auto bond : molecule.bonds_of(k)) {
+        const auto c2 = molecule.neighbor(bond, k);
+        if (order_of(molecule, bond) != BondOrder::Double || atoms[c2].element != Element::C) {
+            continue;
+        }
+        const auto next = heavy_neighbors(molecule, c2, k);
+        if (std::any_of(next.begin(), next.end(), [&](std::size_t c3) {
+                return atoms[c3].element == Element::C &&
+                       has_double_bond_to(molecule, c3, Element::O);
+            })) {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::optional<std::pair<std::size_t, Barrier>> rotation_partner(const Molecule& molecule,
                                                                 std::size_t nitrogen) {
     const auto& atoms = molecule.atoms();
     for (const auto k : heavy_neighbors(molecule, nitrogen)) {
+        if (atoms[k].element == Element::N && has_double_bond_to(molecule, k, Element::O)) {
+            return std::pair{k, Barrier::Slow};  // nitrosamine N-N=O
+        }
         if (atoms[k].element != Element::C) {
             continue;
         }
@@ -508,33 +536,50 @@ std::optional<std::pair<std::size_t, Barrier>> rotation_partner(const Molecule& 
             });
             return std::pair{k, hetero ? Barrier::Borderline : Barrier::Slow};
         }
-        // Enaminone: N-C=C-C(=O).
-        for (const auto bond : molecule.bonds_of(k)) {
-            const auto c2 = molecule.neighbor(bond, k);
-            if (order_of(molecule, bond) != BondOrder::Double || atoms[c2].element != Element::C) {
-                continue;
-            }
-            for (const auto c3 : heavy_neighbors(molecule, c2, k)) {
-                if (atoms[c3].element == Element::C &&
-                    has_double_bond_to(molecule, c3, Element::O)) {
-                    return std::pair{k, Barrier::Borderline};
-                }
-            }
+        if (starts_enaminone(molecule, k)) {
+            return std::pair{k, Barrier::Borderline};
         }
     }
     return std::nullopt;
 }
 
 // Identical groups on an amide-type nitrogen, for the given barrier class.
+// The N partner of the amino N of a nitrosamine written charge-separated, [N+](R)(R)=N[O-]
+// (the chemist's decision, 2026-11-11: the same rule as the neutral N-N=O form).
+std::optional<std::pair<std::size_t, Barrier>> charged_nitrosamine_partner(const Molecule& molecule,
+                                                                           std::size_t nitrogen) {
+    const auto& atoms = molecule.atoms();
+    if (atoms[nitrogen].charge != 1 || molecule.hydrogen_count(nitrogen) != 0 ||
+        double_bonds(molecule, nitrogen) != 1) {
+        return std::nullopt;
+    }
+    for (const auto bond : molecule.bonds_of(nitrogen)) {
+        const auto k = molecule.neighbor(bond, nitrogen);
+        if (order_of(molecule, bond) != BondOrder::Double || atoms[k].element != Element::N) {
+            continue;
+        }
+        for (const auto o : heavy_neighbors(molecule, k, nitrogen)) {
+            const auto b = find_bond(molecule, k, o);
+            if (atoms[o].element == Element::O && atoms[o].charge == -1 && b.has_value() &&
+                order_of(molecule, *b) == BondOrder::Single) {
+                return std::pair{k, Barrier::Slow};
+            }
+        }
+    }
+    return std::nullopt;
+}
+
 std::vector<Pick> rotation_splits(const Molecule& molecule, const std::vector<int>& labels,
                                   Barrier barrier) {
     std::vector<Pick> picks;
     for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {
-        if (molecule.atoms()[i].element != Element::N || !has_only_single_bonds(molecule, i) ||
-            molecule.hydrogen_count(i) != 0) {
+        if (molecule.atoms()[i].element != Element::N) {
             continue;
         }
-        const auto partner = rotation_partner(molecule, i);
+        const bool neutral_amino =
+            has_only_single_bonds(molecule, i) && molecule.hydrogen_count(i) == 0;
+        const auto partner = neutral_amino ? rotation_partner(molecule, i)
+                                           : charged_nitrosamine_partner(molecule, i);
         if (!partner.has_value()) {
             continue;
         }
@@ -553,6 +598,97 @@ std::vector<Pick> rotation_splits(const Molecule& molecule, const std::vector<in
     return picks;
 }
 
+// Whether `bond` lies in a ring: its two atoms stay connected without it.
+bool bond_in_ring(const Molecule& molecule, std::size_t bond) {
+    const auto& ends = molecule.bonds()[bond];
+    std::vector<bool> seen(molecule.atoms().size(), false);
+    std::vector<std::size_t> stack{ends.first};
+    seen[ends.first] = true;
+    while (!stack.empty()) {
+        const auto atom = stack.back();
+        stack.pop_back();
+        for (const auto b : molecule.bonds_of(atom)) {
+            const auto next = molecule.neighbor(b, atom);
+            if (b != bond && !seen[next]) {
+                if (next == ends.second) {
+                    return true;
+                }
+                seen[next] = true;
+                stack.push_back(next);
+            }
+        }
+    }
+    return false;
+}
+
+// The chemist's range rules of 2026-11-09 (nmrshiftdb2 support in the plan):
+// - gem pair on a ring atom: two identical exocyclic groups on an sp3 ring atom (e.g. the
+//   methyls of 1,1-dimethylcyclohexane); a ring atom's own ring neighbours are not a pair;
+// - allene terminal pair: two identical groups on a terminal C of C=C=C whose far terminal
+//   carries two different groups.
+// The gem pair on `atom`, when it is an sp3 ring atom with two identical exocyclic groups.
+std::optional<std::size_t> ring_gem_pair(const Molecule& molecule, std::size_t atom,
+                                         const std::vector<int>& labels) {
+    bool ring_atom = false;
+    std::vector<std::size_t> exocyclic;
+    for (const auto b : molecule.bonds_of(atom)) {
+        const auto other = molecule.neighbor(b, atom);
+        if (bond_in_ring(molecule, b)) {
+            ring_atom = true;
+        } else if (molecule.atoms()[other].element != Element::H) {
+            exocyclic.push_back(other);
+        }
+    }
+    if (!ring_atom) {
+        return std::nullopt;
+    }
+    return identical_pair(exocyclic, labels);
+}
+
+// The identical pair on `terminal`, a C without H at one end of an allene C=C=C whose far
+// terminal carries two different groups; one pick per such allene.
+void allene_terminal_pairs(const Molecule& molecule, std::size_t terminal,
+                           const std::vector<int>& labels, std::vector<Pick>& picks) {
+    const auto& atoms = molecule.atoms();
+    for (const auto b : molecule.bonds_of(terminal)) {
+        const auto mid = molecule.neighbor(b, terminal);
+        if (order_of(molecule, b) != BondOrder::Double || atoms[mid].element != Element::C ||
+            double_bonds(molecule, mid) != 2) {
+            continue;
+        }
+        for (const auto b2 : molecule.bonds_of(mid)) {
+            const auto far = molecule.neighbor(b2, mid);
+            if (far == terminal || order_of(molecule, b2) != BondOrder::Double ||
+                atoms[far].element != Element::C ||
+                !two_different_groups(molecule, far, mid, labels)) {
+                continue;
+            }
+            if (const auto pair =
+                    identical_pair(heavy_neighbors(molecule, terminal, mid), labels)) {
+                picks.push_back(Pick{.atom = *pair});
+            }
+        }
+    }
+}
+
+std::vector<Pick> gem_and_allene_splits(const Molecule& molecule, const std::vector<int>& labels) {
+    std::vector<Pick> picks;
+    const auto& atoms = molecule.atoms();
+    for (std::size_t atom = 0; atom < atoms.size(); ++atom) {
+        if (atoms[atom].element == Element::H) {
+            continue;
+        }
+        if (has_only_single_bonds(molecule, atom)) {
+            if (const auto pair = ring_gem_pair(molecule, atom, labels)) {
+                picks.push_back(Pick{.atom = *pair});
+            }
+        } else if (atoms[atom].element == Element::C && molecule.hydrogen_count(atom) == 0) {
+            allene_terminal_pairs(molecule, atom, labels, picks);
+        }
+    }
+    return picks;
+}
+
 // Whether all substituent groups of `atom` (heavy neighbours by label, plus each H) differ.
 bool all_groups_differ(const Molecule& molecule, std::size_t atom, const std::vector<int>& labels) {
     const auto heavy = heavy_neighbors(molecule, atom);
@@ -565,17 +701,47 @@ bool all_groups_differ(const Molecule& molecule, std::size_t atom, const std::ve
     return molecule.hydrogen_count(atom) <= 1;
 }
 
-bool is_stereocentre(const Molecule& molecule, std::size_t atom, const std::vector<int>& labels) {
+// Whether `atom` is the central carbon of an allene C=C=C whose two terminals each carry
+// two different groups: a chirality element for the "any stereocentre" rule (the chemist's
+// decision, 2026-11-11). Judged on the molecule's topological symmetry (`topological`), so a
+// range split of a terminal's identical pair does not make the allene chiral.
+bool is_chiral_allene_centre(const Molecule& molecule, std::size_t centre,
+                             const std::vector<int>& labels) {
+    const auto& atoms = molecule.atoms();
+    if (double_bonds(molecule, centre) != 2) {
+        return false;
+    }
+    int chiral_ends = 0;
+    for (const auto bond : molecule.bonds_of(centre)) {
+        const auto terminal = molecule.neighbor(bond, centre);
+        if (order_of(molecule, bond) != BondOrder::Double ||
+            atoms[terminal].element != Element::C ||
+            !two_different_groups(molecule, terminal, centre, labels)) {
+            return false;
+        }
+        ++chiral_ends;
+    }
+    return chiral_ends == 2;
+}
+
+bool is_stereocentre(const Molecule& molecule, std::size_t atom, const std::vector<int>& labels,
+                     const std::vector<int>& topological) {
     const auto element = molecule.atoms()[atom].element;
     const auto groups = heavy_neighbors(molecule, atom).size() +
                         static_cast<std::size_t>(molecule.hydrogen_count(atom));
+    if (element == Element::C && is_chiral_allene_centre(molecule, atom, topological)) {
+        return true;
+    }
     if (element == Element::C) {
         return has_only_single_bonds(molecule, atom) && groups == 4 &&
                all_groups_differ(molecule, atom, labels);
     }
-    if (element == Element::S) {  // sulfoxide: S(=O) with two different groups
-        return groups == 3 && has_double_bond_to(molecule, atom, Element::O) &&
-               molecule.bonds_of(atom).size() == 3 && all_groups_differ(molecule, atom, labels);
+    // Sulfoxide S(=O), and sulfilimine S(=N) (added 2026-11-11), with two different groups.
+    if (element == Element::S) {
+        const bool double_to_o_or_n = has_double_bond_to(molecule, atom, Element::O) ||
+                                      has_double_bond_to(molecule, atom, Element::N);
+        return groups == 3 && double_to_o_or_n && molecule.bonds_of(atom).size() == 3 &&
+               all_groups_differ(molecule, atom, labels);
     }
     if (element == Element::P) {  // three different groups, with or without P=O/P=S
         return groups >= 3 && all_groups_differ(molecule, atom, labels);
@@ -635,11 +801,12 @@ std::optional<std::size_t> prochiral_pair(const Molecule& molecule, std::size_t 
 // or at least two prochiral centres (these make each other's groups diastereotopic), one
 // of each prochiral pair, and every stereocentre on its own (unknown configuration can
 // break a symmetry). Over-splitting only widens the range, the safe direction.
-std::vector<Pick> stereo_splits(const Molecule& molecule, const std::vector<int>& labels) {
+std::vector<Pick> stereo_splits(const Molecule& molecule, const std::vector<int>& labels,
+                                const std::vector<int>& topological) {
     std::vector<Pick> stereocentres;
     std::vector<Pick> prochiral;
     for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {
-        if (is_stereocentre(molecule, i, labels)) {
+        if (is_stereocentre(molecule, i, labels, topological)) {
             stereocentres.push_back(Pick{.atom = i, .own_label = true});
         } else if (const auto pair = prochiral_pair(molecule, i, labels)) {
             prochiral.push_back(Pick{.atom = *pair});
@@ -1193,8 +1360,10 @@ NmrEquivalence nmr_equivalence(const Molecule& molecule) {
         picks.insert(picks.end(), borderline.begin(), borderline.end());
         auto weak_ez = ez_splits(molecule, aromaticity, labels, Strength::Range);
         picks.insert(picks.end(), weak_ez.begin(), weak_ez.end());
-        auto stereo = stereo_splits(molecule, labels);
+        auto stereo = stereo_splits(molecule, labels, topological);
         picks.insert(picks.end(), stereo.begin(), stereo.end());
+        auto gem = gem_and_allene_splits(molecule, labels);
+        picks.insert(picks.end(), gem.begin(), gem.end());
         return picks;
     };
     const auto fewest = split_until_stable(molecule, aromaticity, topological, hard);

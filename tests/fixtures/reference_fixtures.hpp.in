@@ -99,6 +99,14 @@ inline constexpr std::array<std::string_view, @ARISE_SOLVENT_SOURCES_CHUNK_COUNT
     kSolventSourcesChunks{
 @ARISE_SOLVENT_SOURCES_CHUNKS@};
 
+// nmrshiftdb2 records that are cleaned PubChem candidates of the RDKit oracle, with the
+// candidate's SMILES (plan 3c ranking). Contains information from nmrshiftdb2
+// (www.nmrshiftdb.org), made available here under the nmrshiftdb2 Database License
+// (tests/data/reference/NMRSHIFTDB2_LICENSE.txt).
+inline constexpr std::array<std::string_view, @ARISE_NMRSHIFTDB_PUBCHEM_MATCHES_CHUNK_COUNT@>
+    kNmrshiftdbPubchemMatchesChunks{
+@ARISE_NMRSHIFTDB_PUBCHEM_MATCHES_CHUNKS@};
+
 // nmrshiftdb2 records with an assigned OH/NH/SH/SeH 1H peak, a solvent and 13C assignments:
 // 1H peaks by kind and an HSQC derived from the assignments (secondary evidence for
 // hsqc::classify_protons). Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made

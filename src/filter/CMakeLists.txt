@@ -1,4 +1,5 @@
 add_library(arise_filter
+    carbon_fit.cpp
     exchangeable.cpp
     groups.cpp)
 add_library(arise::filter ALIAS arise_filter)

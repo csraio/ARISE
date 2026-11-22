@@ -1398,13 +1398,15 @@ struct SplitEvidence {
 
 // The share of always-split pairs nmrshiftdb2 lists at different shifts (mean over
 // records), and the standard deviation of the per-record shares, measured by the test below
-// on 2026-11-08 after the chemist moved the weakly supported splits (amidines and
-// guanidines, enamines and enaminones, N-acyl azoles) to the range and diazo carbons out:
-// 0.904858 and 0.274995 over 638 records, recorded rounded down and up, so the pass mark
-// (rate less three standard errors) only loosens. Each "same shift" pair is printed for the
-// chemist. Re-measure on purpose when the rules or the extract change.
-constexpr double kMeasuredSplitSupport = 0.904;
-constexpr double kMeasuredSplitSupportSd = 0.275;
+// after the chemist moved the weakly supported splits (amidines and guanidines, enamines
+// and enaminones, N-acyl azoles) to the range and diazo carbons out (2026-11-08), and added
+// the nitrosamine split (2026-11-09; its charge-separated form 2026-11-11): 0.90623 and
+// 0.272786 over 650 records, recorded
+// rounded down and up, so the pass mark (rate less three standard errors) only loosens.
+// Each "same shift" pair is printed for the chemist. Re-measure on purpose when the rules
+// or the extract change.
+constexpr double kMeasuredSplitSupport = 0.906;
+constexpr double kMeasuredSplitSupportSd = 0.273;
 
 // The always-split carbon pairs (i, j) of one molecule.
 std::vector<std::pair<std::size_t, std::size_t>> always_split_pairs(
