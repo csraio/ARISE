@@ -59,8 +59,8 @@ inline constexpr std::array<std::string_view, @ARISE_GROUP_DEFINITIONS_CHUNK_COU
     kGroupDefinitionsChunks{
 @ARISE_GROUP_DEFINITIONS_CHUNKS@};
 
-// tests/chem/molecule_test.cpp, perception_test.cpp and tests/filter/groups_test.cpp (the
-// hand-written spec cases).
+// Every test source (tests/*/*.cpp and *.hpp), each preceded by a "## <path>" line, so a
+// test can require that none contains a SMILES literal.
 inline constexpr std::array<std::string_view, @ARISE_SPEC_SOURCES_CHUNK_COUNT@>
     kSpecSourcesChunks{
 @ARISE_SPEC_SOURCES_CHUNKS@};
@@ -74,6 +74,19 @@ inline constexpr std::array<std::string_view, @ARISE_CLEANING_ORACLE_CHUNK_COUNT
 inline constexpr std::array<std::string_view, @ARISE_NAMED_COMPOUNDS_CHUNK_COUNT@>
     kNamedCompoundsChunks{
 @ARISE_NAMED_COMPOUNDS_CHUNKS@};
+
+// The molecules the hand-written tests read by name: PubChem compounds by CID, molecules
+// made by a named rule from one, and the SMILES-reader strings that are no PubChem
+// structure (read through tests/fixtures/test_molecules.hpp).
+inline constexpr std::array<std::string_view, @ARISE_TEST_COMPOUNDS_CHUNK_COUNT@>
+    kTestCompoundsChunks{
+@ARISE_TEST_COMPOUNDS_CHUNKS@};
+inline constexpr std::array<std::string_view, @ARISE_RULE_COMPOUNDS_CHUNK_COUNT@>
+    kRuleCompoundsChunks{
+@ARISE_RULE_COMPOUNDS_CHUNKS@};
+inline constexpr std::array<std::string_view, @ARISE_SYNTAX_CASES_CHUNK_COUNT@>
+    kSyntaxCasesChunks{
+@ARISE_SYNTAX_CASES_CHUNKS@};
 
 // The recorded PubChem formula searches (tests/data/pubchem_*.csv; PubChem data is in the
 // public domain), each preceded by a "## <formula>" line.

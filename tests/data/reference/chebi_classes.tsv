@@ -39,7 +39,7 @@
 # class 24129: furans
 # class 26455: pyrroles
 # class 26961: thiophenes
-# rings: fr_benzene fr_pyridine fr_furan fr_thiophene n1cccc1
+# rings: fr_benzene fr_pyridine fr_furan fr_thiophene pyrrole_ring
 25	CC(C=O)C1CCC(C)C1C=O	17478	0 0 0 0 0
 26	CC1=COC(O)C2C(C)CCC12	30879	0 0 0 0 0
 36	CC(N)C(O)C1=CC=CC=C1	32952	1 0 0 0 0

@@ -71,6 +71,14 @@ arise_embed_chunks("${ARISE_REFERENCE_DIR}/pubchem_cleaning_oracle.tsv"
                    ARISE_CLEANING_ORACLE_CHUNKS ARISE_CLEANING_ORACLE_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/named_compounds.tsv"
                    ARISE_NAMED_COMPOUNDS_CHUNKS ARISE_NAMED_COMPOUNDS_CHUNK_COUNT)
+# The molecules and SMILES-reader strings the hand-written tests read by name
+# (tests/fixtures/test_molecules.hpp): no test contains a SMILES literal.
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/test_compounds.tsv"
+                   ARISE_TEST_COMPOUNDS_CHUNKS ARISE_TEST_COMPOUNDS_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/rule_compounds.tsv"
+                   ARISE_RULE_COMPOUNDS_CHUNKS ARISE_RULE_COMPOUNDS_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/smiles_syntax_cases.tsv"
+                   ARISE_SYNTAX_CASES_CHUNKS ARISE_SYNTAX_CASES_CHUNK_COUNT)
 # Every recorded PubChem formula search, each file's chunks preceded by a "## <formula>"
 # chunk, for the cleaning check.
 set(ARISE_PUBCHEM_SEARCHES_CHUNKS "")
@@ -86,11 +94,16 @@ foreach(search ${ARISE_PUBCHEM_SEARCHES})
          "${ARISE_PUBCHEM_SEARCHES_CHUNK_COUNT} + ${count} + 1")
 endforeach()
 
-# The hand-written tests, so a test can require RDKit's view of every SMILES in them.
+# Every test source, so a test can require that none contains a SMILES literal.
 set(ARISE_SPEC_SOURCES_CHUNKS "")
 set(ARISE_SPEC_SOURCES_CHUNK_COUNT 0)
-foreach(source chem/molecule_test.cpp chem/perception_test.cpp filter/groups_test.cpp)
+file(GLOB ARISE_TEST_SOURCES RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}"
+     "${CMAKE_CURRENT_SOURCE_DIR}/*/*.cpp" "${CMAKE_CURRENT_SOURCE_DIR}/*/*.hpp")
+list(SORT ARISE_TEST_SOURCES)
+foreach(source ${ARISE_TEST_SOURCES})
     arise_embed_chunks("${CMAKE_CURRENT_SOURCE_DIR}/${source}" chunks count)
+    string(APPEND ARISE_SPEC_SOURCES_CHUNKS "    R\"ref(\n## ${source}\n)ref\"sv,\n")
+    math(EXPR count "${count} + 1")
     string(APPEND ARISE_SPEC_SOURCES_CHUNKS "${chunks}")
     math(EXPR ARISE_SPEC_SOURCES_CHUNK_COUNT "${ARISE_SPEC_SOURCES_CHUNK_COUNT} + ${count}")
 endforeach()

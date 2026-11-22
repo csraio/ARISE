@@ -4,6 +4,7 @@
 #include "arise/core/formula.hpp"
 #include "arise/io/pubchem.hpp"
 #include "pubchem_fixture.hpp"
+#include "test_molecules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -16,6 +17,9 @@
 #include <vector>
 
 namespace {
+
+using arise::test::compound_smiles;
+using arise::test::syntax_case;
 
 using arise::chem::Atom;
 using arise::chem::Bond;
@@ -65,7 +69,7 @@ std::vector<Element> elements(const Molecule& molecule) {
 
 TEST(Smiles, ReadsEthylAcetate) {
     // CH3-CH2-O-C(=O)-CH3, as PubChem writes it.
-    const auto molecule = parse_ok("CCOC(=O)C");
+    const auto molecule = parse_ok(compound_smiles("Ethyl Acetate"));
     const std::vector<Element> expected_elements{
         Element::C, Element::C, Element::O, Element::C, Element::O, Element::C,
     };
@@ -82,7 +86,7 @@ TEST(Smiles, ReadsEthylAcetate) {
 }
 
 TEST(Smiles, ReadsKekuleBenzeneAsSixMethines) {
-    const auto molecule = parse_ok("C1=CC=CC=C1");
+    const auto molecule = parse_ok(compound_smiles("Benzene"));
     EXPECT_EQ(hydrogen_counts(molecule), (std::vector<int>{1, 1, 1, 1, 1, 1}));
     ASSERT_EQ(molecule.bonds().size(), 6U);
     int doubles = 0;
@@ -93,26 +97,26 @@ TEST(Smiles, ReadsKekuleBenzeneAsSixMethines) {
 }
 
 TEST(Smiles, ReadsTripleBonds) {
-    const auto molecule = parse_ok("CC#N");  // acetonitrile
+    const auto molecule = parse_ok(compound_smiles("Acetonitrile"));  // acetonitrile
     EXPECT_EQ(hydrogen_counts(molecule), (std::vector<int>{3, 0, 0}));
     EXPECT_EQ(molecule.bonds()[1].order, BondOrder::Triple);
 }
 
 TEST(Smiles, ReadsNestedBranches) {
-    const auto molecule = parse_ok("CC(C)(C)C");  // neopentane
+    const auto molecule = parse_ok(compound_smiles("Neopentane"));  // neopentane
     EXPECT_EQ(hydrogen_counts(molecule), (std::vector<int>{3, 0, 3, 3, 3}));
     EXPECT_EQ(molecule.bonds_of(1).size(), 4U);
 }
 
 TEST(Smiles, ReadsTwoDigitRingClosures) {
-    const auto molecule = parse_ok("C%10CCCCC%10");  // cyclohexane
+    const auto molecule = parse_ok(syntax_case("two-digit ring closures"));  // cyclohexane
     EXPECT_EQ(hydrogen_counts(molecule), (std::vector<int>{2, 2, 2, 2, 2, 2}));
     EXPECT_EQ(molecule.bonds().size(), 6U);
 }
 
 TEST(Smiles, TwoDigitRingNumbersAreDistinct) {
     // %12 and %21 are different rings: 12 joins atoms 0-4, 21 joins atoms 2-6.
-    const auto molecule = parse_ok("C%12CC%21CC%12CC%21");
+    const auto molecule = parse_ok(syntax_case("two-digit ring numbers 12 and 21"));
     std::vector<std::pair<std::size_t, std::size_t>> ring_bonds;
     for (const auto& bond : molecule.bonds()) {
         if (bond.second != bond.first + 1) {
@@ -124,50 +128,61 @@ TEST(Smiles, TwoDigitRingNumbersAreDistinct) {
 }
 
 TEST(Smiles, RingBondOrderMayBeWrittenOnEitherEnd) {
-    for (const auto* smiles : {"C=1CCCCC1", "C1CCCCC=1", "C=1CCCCC=1"}) {
+    for (const auto& smiles : {
+             syntax_case("ring bond order on the opening digit"),
+             syntax_case("ring bond order on the closing digit"),
+             syntax_case("ring bond order on both digits"),
+         }) {
         const auto molecule = parse_ok(smiles);  // cyclohexene
         EXPECT_EQ(hydrogen_counts(molecule), (std::vector<int>{1, 2, 2, 2, 2, 1})) << smiles;
     }
 }
 
 TEST(Smiles, ImplicitHydrogensFollowNormalValences) {
-    EXPECT_EQ(hydrogen_counts(parse_ok("CN")), (std::vector<int>{3, 2}));   // N 3
-    EXPECT_EQ(hydrogen_counts(parse_ok("C=O")), (std::vector<int>{2, 0}));  // O 2
-    EXPECT_EQ(hydrogen_counts(parse_ok("CS(=O)(=O)C")),                     // S 6
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("Methylamine"))),
+              (std::vector<int>{3, 2}));  // N 3
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("Formaldehyde"))),
+              (std::vector<int>{2, 0}));                                       // O 2
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("Dimethyl Sulfone"))),  // S 6
               (std::vector<int>{3, 0, 0, 0, 3}));
-    EXPECT_EQ(hydrogen_counts(parse_ok("CP(C)C")), (std::vector<int>{3, 0, 3, 3}));  // P 3
-    EXPECT_EQ(hydrogen_counts(parse_ok("ClCCl")), (std::vector<int>{0, 2, 0}));
-    EXPECT_EQ(hydrogen_counts(parse_ok("BrC(F)I")), (std::vector<int>{0, 1, 0, 0}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("Trimethylphosphine"))),
+              (std::vector<int>{3, 0, 3, 3}));  // P 3
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("Dichloromethane"))),
+              (std::vector<int>{0, 2, 0}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("Bromofluoroiodomethane"))),
+              (std::vector<int>{0, 1, 0, 0}));
     EXPECT_EQ(hydrogen_counts(parse_ok("B")), (std::vector<int>{3}));  // borane
 }
 
 TEST(Smiles, ReadsBracketAtoms) {
-    const auto labelled = parse_ok("[13CH4]");
+    const auto labelled = parse_ok(compound_smiles("Carbon-13C"));
     ASSERT_EQ(labelled.atoms().size(), 1U);
     EXPECT_EQ(
         labelled.atoms()[0],
         (Atom{.element = Element::C, .charge = 0, .hydrogens = 4, .isotope = 13, .bracket = true}));
 
-    const auto silane = parse_ok("C[Si](C)(C)C");  // tetramethylsilane
+    const auto silane = parse_ok(compound_smiles("Tetramethylsilane"));  // tetramethylsilane
     EXPECT_EQ(silane.atoms()[1].element, Element::Si);
     EXPECT_EQ(hydrogen_counts(silane), (std::vector<int>{3, 0, 3, 3, 3}));
 
-    const auto ammonium = parse_ok("[NH4+]");
+    const auto ammonium = parse_ok(compound_smiles("Ammonium"));
     EXPECT_EQ(ammonium.atoms()[0].charge, 1);
     EXPECT_EQ(ammonium.atoms()[0].hydrogens, 4);
-    EXPECT_EQ(parse_ok("C[O-]").atoms()[1].charge, -1);
-    EXPECT_EQ(parse_ok("[CH2++]").atoms()[0].charge, 2);
-    EXPECT_EQ(parse_ok("[CH2+2]").atoms()[0].charge, 2);
+    EXPECT_EQ(parse_ok(compound_smiles("Methoxide")).atoms()[1].charge, -1);
+    EXPECT_EQ(parse_ok(syntax_case("doubly charged CH2 written ++")).atoms()[0].charge, 2);
+    EXPECT_EQ(parse_ok(syntax_case("doubly charged CH2 written +2")).atoms()[0].charge, 2);
 }
 
 TEST(Smiles, BracketAtomsGetNoImplicitHydrogens) {
     // [CH] has exactly one hydrogen, whatever its bonds; [C] has none.
-    EXPECT_EQ(hydrogen_counts(parse_ok("C[CH]C")), (std::vector<int>{3, 1, 3}));
-    EXPECT_EQ(hydrogen_counts(parse_ok("[C]")), (std::vector<int>{0}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(syntax_case("CH in brackets between methyls"))),
+              (std::vector<int>{3, 1, 3}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(syntax_case("bare carbon in brackets"))),
+              (std::vector<int>{0}));
 }
 
 TEST(Smiles, ExplicitHydrogenAtomsCountTowardTheirNeighbour) {
-    const auto methane = parse_ok("[H]C([H])([H])[H]");
+    const auto methane = parse_ok(syntax_case("explicit hydrogen atoms on methane"));
     ASSERT_EQ(methane.atoms().size(), 5U);
     EXPECT_EQ(methane.atoms()[1].hydrogens, 0);  // four bonds already: no implicit H
     EXPECT_EQ(methane.hydrogen_count(1), 4);
@@ -175,14 +190,18 @@ TEST(Smiles, ExplicitHydrogenAtomsCountTowardTheirNeighbour) {
 }
 
 TEST(Smiles, StereoMarksAreAcceptedAndIgnored) {
-    EXPECT_EQ(hydrogen_counts(parse_ok("C[C@@H](O)CC")), (std::vector<int>{3, 1, 1, 2, 3}));
-    EXPECT_EQ(hydrogen_counts(parse_ok("C[C@H](O)CC")), (std::vector<int>{3, 1, 1, 2, 3}));
-    EXPECT_EQ(hydrogen_counts(parse_ok("F/C=C/F")), (std::vector<int>{0, 1, 1, 0}));
-    EXPECT_EQ(hydrogen_counts(parse_ok("F/C=C\\F")), (std::vector<int>{0, 1, 1, 0}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("(-)-2-Butanol"))),
+              (std::vector<int>{3, 1, 1, 2, 3}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("(+)-2-Butanol"))),
+              (std::vector<int>{3, 1, 1, 2, 3}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("trans-1,2-Difluoroethylene"))),
+              (std::vector<int>{0, 1, 1, 0}));
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("cis-1,2-Difluoroethylene"))),
+              (std::vector<int>{0, 1, 1, 0}));
 }
 
 TEST(Smiles, NeighboursAndValence) {
-    const auto molecule = parse_ok("CC(=O)O");  // acetic acid
+    const auto molecule = parse_ok(compound_smiles("Acetic Acid"));  // acetic acid
     std::vector<std::size_t> neighbours;
     for (const auto bond : molecule.bonds_of(1)) {
         neighbours.push_back(molecule.neighbor(bond, 1));
@@ -200,16 +219,16 @@ TEST(Smiles, EmptyInputIsError) {
 
 TEST(Smiles, AromaticLowercaseIsNotSupportedYet) {
     expect_error("c1ccccc1", {"column 1", "aromatic", "Kekul"});
-    expect_error("C1=CC=CC=C1[nH]", {"aromatic"});
-    expect_error("CC:C", {"column 3", "aromatic"});
+    expect_error(syntax_case("aromatic lowercase atom after a Kekule ring"), {"aromatic"});
+    expect_error(syntax_case("aromatic bond symbol"), {"column 3", "aromatic"});
 }
 
 TEST(Smiles, UnsupportedElementsAndNotationAreErrors) {
-    expect_error("C[Na]", {"column 3", "Na"});
+    expect_error(syntax_case("sodium"), {"column 3", "Na"});
     expect_error("CSi", {"column 2", "bracket"});  // Si needs brackets: [Si]
-    expect_error("C$C", {"column 2", "'$'"});
-    expect_error("[CH4:1]", {"class"});
-    expect_error("C[C@TH1H](O)C", {"column 4", "stereo"});
+    expect_error(syntax_case("quadruple bond symbol"), {"column 2", "'$'"});
+    expect_error(syntax_case("atom class"), {"class"});
+    expect_error(syntax_case("tetrahedral stereo class"), {"column 4", "stereo"});
 }
 
 TEST(Smiles, MoreThanOneComponentIsError) {
@@ -217,88 +236,100 @@ TEST(Smiles, MoreThanOneComponentIsError) {
 }
 
 TEST(Smiles, UnbalancedBranchesAreErrors) {
-    expect_error("CC(C", {"branch"});
-    expect_error("CC)C", {"column 3", "branch"});
-    expect_error("C()C", {"column 3", "empty branch"});
-    expect_error("(C)C", {"column 1", "branch"});
+    expect_error(syntax_case("unclosed branch"), {"branch"});
+    expect_error(syntax_case("branch closed without opening"), {"column 3", "branch"});
+    expect_error(syntax_case("empty branch"), {"column 3", "empty branch"});
+    expect_error(syntax_case("branch before any atom"), {"column 1", "branch"});
 }
 
 TEST(Smiles, BadRingClosuresAreErrors) {
     expect_error("C1CC", {"ring 1", "not closed"});
     expect_error("C11", {"column 3", "itself"});
-    expect_error("C=1CCCCC#1", {"column 10", "ring 1", "conflict"});
-    expect_error("C%1C", {"column 2", "%"});
+    expect_error(syntax_case("ring bond orders in conflict"), {"column 10", "ring 1", "conflict"});
+    expect_error(syntax_case("percent with one digit"), {"column 2", "%"});
     // Two closures between the same two atoms would be a double bond in disguise.
     expect_error("C12CC12", {"duplicate bond"});
     expect_error("C1C1", {"duplicate bond"});  // chain bond plus ring bond
     // A ring opened inside a branch and closed after it, onto the branch root.
-    expect_error("CC(C1C)1", {"duplicate bond"});
+    expect_error(syntax_case("ring closure onto the branch root"), {"duplicate bond"});
 }
 
 TEST(Smiles, DanglingBondsAreErrors) {
-    expect_error("CC=", {"bond"});
-    expect_error("=CC", {"column 1", "bond"});
-    expect_error("C(=)C", {"column 3", "bond"});
+    expect_error(syntax_case("bond at the end"), {"bond"});
+    expect_error(syntax_case("bond at the start"), {"column 1", "bond"});
+    expect_error(syntax_case("bond into an empty branch"), {"column 3", "bond"});
 }
 
 TEST(Smiles, MalformedBracketAtomsAreErrors) {
     expect_error("C[CH4", {"column 2", "']'"});
-    expect_error("C[]C", {"column 2", "empty"});
-    expect_error("[cH4]", {"aromatic"});
+    expect_error(syntax_case("empty bracket"), {"column 2", "empty"});
+    expect_error(syntax_case("aromatic bracket atom"), {"aromatic"});
 }
 
 // ---- Structure issues ---------------------------------------------------------------
 
 TEST(StructureIssue, NormalMoleculesHaveNone) {
-    for (const auto* smiles : {
-             "CCOC(=O)C",
-             "CC#N",
-             "CS(=O)(=O)C",
-             "C1=CC=CC=C1",
-             "[13CH4]",
-             "C[Si](C)(C)C",
-             "CP(=O)(C)C",
+    for (const auto& smiles : {
+             compound_smiles("Ethyl Acetate"),
+             compound_smiles("Acetonitrile"),
+             compound_smiles("Dimethyl Sulfone"),
+             compound_smiles("Benzene"),
+             compound_smiles("Carbon-13C"),
+             compound_smiles("Tetramethylsilane"),
+             compound_smiles("Trimethylphosphine oxide"),
          }) {
         EXPECT_EQ(structure_issue(parse_ok(smiles)), std::nullopt) << smiles;
     }
 }
 
 TEST(StructureIssue, ChargedSpeciesAreFlaggedFirst) {
-    EXPECT_EQ(structure_issue(parse_ok("[NH4+]")), StructureIssue::Charged);
-    EXPECT_EQ(structure_issue(parse_ok("C(CC[O-])C[O-]")), StructureIssue::Charged);
-    EXPECT_EQ(structure_issue(parse_ok("[CH2+]")), StructureIssue::Charged);  // not radical
+    EXPECT_EQ(structure_issue(parse_ok(compound_smiles("Ammonium"))), StructureIssue::Charged);
+    EXPECT_EQ(structure_issue(parse_ok(compound_smiles("Butane-1,4-diolate"))),
+              StructureIssue::Charged);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("cationic CH2"))),
+              StructureIssue::Charged);  // not radical
 }
 
 TEST(StructureIssue, RadicalsAndCarbenesAreFlagged) {
     // From the real PubChem C4H8O2 result: an O-CH fragment with one hydrogen too few.
-    EXPECT_EQ(structure_issue(parse_ok("CC(CO)O[CH]")), StructureIssue::Radical);
-    EXPECT_EQ(structure_issue(parse_ok("C[O]")), StructureIssue::Radical);
-    EXPECT_EQ(structure_issue(parse_ok("[CH2]")), StructureIssue::Radical);  // carbene
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("O-CH fragment one hydrogen short"))),
+              StructureIssue::Radical);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("methoxy radical"))), StructureIssue::Radical);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("CH2 radical"))),
+              StructureIssue::Radical);  // carbene
     // S with three bonds: valence 3, between its normal valences 2 and 4.
-    EXPECT_EQ(structure_issue(parse_ok("C[S](C)C")), StructureIssue::Radical);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("sulfur with three bonds"))),
+              StructureIssue::Radical);
     // ...whereas one more hydrogen makes valence 4, which is normal for S.
-    EXPECT_EQ(structure_issue(parse_ok("C[SH](C)C")), std::nullopt);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("sulfur with three bonds and one hydrogen"))),
+              std::nullopt);
 }
 
 TEST(StructureIssue, ExcessValenceIsFlagged) {
-    EXPECT_EQ(structure_issue(parse_ok("CC(C)(C)(C)C")), StructureIssue::UnusualValence);
-    EXPECT_EQ(structure_issue(parse_ok("[CH5]")), StructureIssue::UnusualValence);
-    EXPECT_EQ(structure_issue(parse_ok("FC(F)(F)(F)F")), StructureIssue::UnusualValence);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("carbon with five bonds"))),
+              StructureIssue::UnusualValence);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("CH5"))), StructureIssue::UnusualValence);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("CF5"))), StructureIssue::UnusualValence);
 }
 
 TEST(StructureIssue, NeutralNitrogenWithFiveSingleBondsIsUnusual) {
     // Valence 5 needs a double bond (N(=O)=O); five sigma bonds cannot exist on neutral N
     // (user decision 2026-11-01; checked against RDKit by Provenance.Valences*).
-    EXPECT_EQ(structure_issue(parse_ok("CN(C)(C)C")), StructureIssue::UnusualValence);
-    EXPECT_EQ(structure_issue(parse_ok("C[N](C)(C)(C)C")), StructureIssue::UnusualValence);
-    EXPECT_EQ(structure_issue(parse_ok("CN(=O)=O")), std::nullopt);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("neutral nitrogen with four single bonds"))),
+              StructureIssue::UnusualValence);
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("neutral nitrogen with five single bonds"))),
+              StructureIssue::UnusualValence);
+    EXPECT_EQ(structure_issue(parse_ok(compound_smiles("Nitromethane (uncharged nitro)"))),
+              std::nullopt);
 }
 
 TEST(StructureIssue, IodineMayBeHypervalent) {
     // Iodine valences 1, 3, 5 (hypervalent iodine reagents; user decision 2026-11-01).
-    EXPECT_EQ(structure_issue(parse_ok("CC(=O)OI(OC(C)=O)C1=CC=CC=C1")), std::nullopt);
-    EXPECT_EQ(hydrogen_counts(parse_ok("CI(C)C")), (std::vector<int>{3, 0, 3, 3}));
-    EXPECT_EQ(structure_issue(parse_ok("C[I]C")), StructureIssue::Radical);
+    EXPECT_EQ(structure_issue(parse_ok(compound_smiles("Iodobenzene diacetate"))), std::nullopt);
+    EXPECT_EQ(hydrogen_counts(parse_ok(compound_smiles("Trimethyl-lambda3-iodane"))),
+              (std::vector<int>{3, 0, 3, 3}));
+    EXPECT_EQ(structure_issue(parse_ok(syntax_case("iodine with two bonds in brackets"))),
+              StructureIssue::Radical);
 }
 
 TEST(StructureIssue, IssuesHaveReadableNames) {
@@ -361,7 +392,8 @@ int graph_unsaturation(const Molecule& molecule) {
 
 // The formula's degrees of unsaturation count every C as 4-valent and every O as
 // 2-valent. An atom away from that valence (a charge pair in a charge-separated structure,
-// such as [CH2+]COCC[O-]) shifts it: DoU = rings + pi + sum(lowest valence - valence) / 2.
+// such as a CH2+ and an O- in one molecule) shifts it: DoU = rings + pi + sum(lowest valence -
+// valence) / 2.
 int formula_unsaturation(const Molecule& molecule) {
     int excess = 0;
     for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {

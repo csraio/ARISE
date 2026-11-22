@@ -10,6 +10,7 @@
 #include "arise/core/units.hpp"
 #include "arise/nmr1d/dept.hpp"
 #include "reference_fixtures.hpp"
+#include "test_molecules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -19,6 +20,9 @@
 #include <vector>
 
 namespace {
+
+using arise::test::compound_smiles;
+using arise::test::syntax_case;
 
 using arise::chem::Group;
 using arise::core::ErrorCode;
@@ -459,9 +463,11 @@ arise::filter::Verdict verdict(std::string_view smiles, const ConfirmedGroups& c
 TEST(ConfirmedGroups, ConfirmedEsterKeepsEstersAndEliminatesTheRest) {
     // The plan's end-to-end case (C4H8O2, "carboxylic ester" confirmed).
     const ConfirmedGroups ester{.present = {Group::CarboxylicEster}, .absent = {}};
-    EXPECT_EQ(verdict("CCOC(C)=O", ester).tier, Tier::Active);  // ethyl acetate
-    EXPECT_EQ(verdict("CCC(=O)OC", ester).tier, Tier::Active);  // methyl propanoate
-    const auto methoxyacetone = verdict("COCC(C)=O", ester);
+    EXPECT_EQ(verdict(compound_smiles("Ethyl Acetate (atom order 2)"), ester).tier,
+              Tier::Active);  // ethyl acetate
+    EXPECT_EQ(verdict(compound_smiles("Methyl propionate"), ester).tier,
+              Tier::Active);  // methyl propanoate
+    const auto methoxyacetone = verdict(compound_smiles("Methoxyacetone (atom order 2)"), ester);
     EXPECT_EQ(methoxyacetone.tier, Tier::Eliminated);
     EXPECT_EQ(
         methoxyacetone.reasons,
@@ -470,10 +476,11 @@ TEST(ConfirmedGroups, ConfirmedEsterKeepsEstersAndEliminatesTheRest) {
 
 TEST(ConfirmedGroups, GroupRuledOutEliminatesCandidatesThatHaveIt) {
     const ConfirmedGroups no_ketone{.present = {}, .absent = {Group::Ketone}};
-    EXPECT_EQ(verdict("CCOC(C)=O", no_ketone).tier, Tier::Active);
-    EXPECT_EQ(verdict("COCC(C)=O", no_ketone).reasons,
+    EXPECT_EQ(verdict(compound_smiles("Ethyl Acetate (atom order 2)"), no_ketone).tier,
+              Tier::Active);
+    EXPECT_EQ(verdict(compound_smiles("Methoxyacetone (atom order 2)"), no_ketone).reasons,
               std::vector<std::string>{"confirmed absent: ketone; the candidate has 1"});
-    EXPECT_EQ(verdict("CC(=O)CC(C)=O", no_ketone).reasons,
+    EXPECT_EQ(verdict(compound_smiles("Acetylacetone"), no_ketone).reasons,
               std::vector<std::string>{"confirmed absent: ketone; the candidate has 2"});
 }
 
@@ -482,7 +489,7 @@ TEST(ConfirmedGroups, EveryViolationIsAReasonInTheOrderGiven) {
         .present = {Group::Alcohol, Group::CarboxylicEster},
         .absent = {Group::Ether, Group::Ketone},
     };
-    const auto result = verdict("COCC(C)=O", confirmed);
+    const auto result = verdict(compound_smiles("Methoxyacetone (atom order 2)"), confirmed);
     EXPECT_EQ(result.tier, Tier::Eliminated);
     EXPECT_EQ(result.reasons, (std::vector<std::string>{
                                   "confirmed present: alcohol; the candidate has none",
@@ -493,11 +500,13 @@ TEST(ConfirmedGroups, EveryViolationIsAReasonInTheOrderGiven) {
 }
 
 TEST(ConfirmedGroups, NothingConfirmedKeepsEveryCandidateActive) {
-    EXPECT_EQ(verdict("COCC(C)=O", {}), arise::filter::Verdict{});
+    EXPECT_EQ(verdict(compound_smiles("Methoxyacetone (atom order 2)"), {}),
+              arise::filter::Verdict{});
 }
 
 TEST(ConfirmedGroups, GroupConfirmedBothPresentAndAbsentIsAnError) {
-    const auto molecule = arise::chem::parse_smiles("CCOC(C)=O");
+    const auto molecule =
+        arise::chem::parse_smiles(compound_smiles("Ethyl Acetate (atom order 2)"));
     ASSERT_TRUE(molecule.ok());
     const auto result = arise::filter::check_confirmed_groups(
         molecule.value(),

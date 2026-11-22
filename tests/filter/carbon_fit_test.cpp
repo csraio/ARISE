@@ -5,6 +5,7 @@
 #include "arise/filter/carbon_fit.hpp"
 
 #include "arise/chem/molecule.hpp"
+#include "test_molecules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -16,6 +17,9 @@
 #include <vector>
 
 namespace {
+
+using arise::test::compound_smiles;
+using arise::test::syntax_case;
 
 using arise::core::Ppm;
 using arise::filter::CarbonFit;
@@ -49,15 +53,17 @@ constexpr CarbonTypeSet kCH2{CarbonType::CH2};
 constexpr CarbonTypeSet kCH3{CarbonType::CH3};
 constexpr auto kAny = CarbonTypeSet::all();
 
-// Ethyl acetate, CCOC(=O)C: four environments always (CH3, CH2, C=O, CH3).
-constexpr std::string_view kEthylAcetate = "CCOC(=O)C";
+// Ethyl acetate (PubChem CID 8857): four environments always (CH3, CH2, C=O, CH3).
+std::string ethyl_acetate() {
+    return compound_smiles("Ethyl Acetate");
+}
 
 std::vector<CarbonAssignment> ethyl_acetate_peaks() {
     return {peak(14.0, kCH3), peak(60.0, kCH2), peak(171.0, kC), peak(21.0, kCH3)};
 }
 
 TEST(CarbonFit, AnExactFitIsActiveWithNoOverlaps) {
-    const auto result = fit(kEthylAcetate, ethyl_acetate_peaks());
+    const auto result = fit(ethyl_acetate(), ethyl_acetate_peaks());
     EXPECT_EQ(result.verdict.tier, Tier::Active);
     EXPECT_TRUE(result.verdict.reasons.empty());
     EXPECT_EQ(result.assumed_overlaps, 0);
@@ -69,14 +75,14 @@ TEST(CarbonFit, AnExactFitIsActiveWithNoOverlaps) {
 TEST(CarbonFit, FewerPeaksStayActiveAndCountAssumedOverlaps) {
     auto peaks = ethyl_acetate_peaks();
     peaks.pop_back();  // the two CH3 peaks taken as one
-    const auto result = fit(kEthylAcetate, peaks);
+    const auto result = fit(ethyl_acetate(), peaks);
     EXPECT_EQ(result.verdict.tier, Tier::Active);
     EXPECT_EQ(result.assumed_overlaps, 1);
     EXPECT_EQ(result.notes, std::vector<std::string>{"assumes 1 overlapping peak"});
 }
 
 TEST(CarbonFit, SeveralOverlapsAreCountedAndStillOnlyNoted) {
-    const auto result = fit(kEthylAcetate, {peak(60.0, kAny), peak(171.0, kAny)});
+    const auto result = fit(ethyl_acetate(), {peak(60.0, kAny), peak(171.0, kAny)});
     EXPECT_EQ(result.verdict.tier, Tier::Active);
     EXPECT_EQ(result.assumed_overlaps, 2);
     EXPECT_EQ(result.notes, std::vector<std::string>{"assumes 2 overlapping peaks"});
@@ -85,7 +91,7 @@ TEST(CarbonFit, SeveralOverlapsAreCountedAndStillOnlyNoted) {
 TEST(CarbonFit, MorePeaksThanEnvironmentsGoToTheBackBurner) {
     auto peaks = ethyl_acetate_peaks();
     peaks.push_back(peak(30.0, kAny));
-    const auto result = fit(kEthylAcetate, peaks);
+    const auto result = fit(ethyl_acetate(), peaks);
     EXPECT_EQ(result.verdict.tier, Tier::BackBurner);
     EXPECT_EQ(result.verdict.reasons,
               std::vector<std::string>{
@@ -94,8 +100,8 @@ TEST(CarbonFit, MorePeaksThanEnvironmentsGoToTheBackBurner) {
 
 TEST(CarbonFit, APeakWithNoEnvironmentOfItsTypeLeftGoesToTheBackBurner) {
     // Two CH2 peaks, but ethyl acetate has one CH2 environment.
-    const auto result =
-        fit(kEthylAcetate, {peak(14.0, kCH3), peak(60.0, kCH2), peak(45.5, kCH2), peak(171.0, kC)});
+    const auto result = fit(
+        ethyl_acetate(), {peak(14.0, kCH3), peak(60.0, kCH2), peak(45.5, kCH2), peak(171.0, kC)});
     EXPECT_EQ(result.verdict.tier, Tier::BackBurner);
     ASSERT_EQ(result.verdict.reasons.size(), 1U);
     const auto& reason = result.verdict.reasons.front();
@@ -109,38 +115,38 @@ TEST(CarbonFit, TheMatchingFindsAFitWhereAGreedyChoiceWouldNot) {
     // The first peak could be CH3 or CH2; taking the CH2 environment for it would leave the
     // second (CH2 only) without one. A maximum matching gives it the CH3.
     const CarbonTypeSet ch2_or_ch3{CarbonType::CH2, CarbonType::CH3};
-    const auto result = fit(kEthylAcetate, {
-                                               peak(20.0, ch2_or_ch3),
-                                               peak(60.0, kCH2),
-                                               peak(171.0, kC),
-                                               peak(14.0, kCH3),
-                                           });
+    const auto result = fit(ethyl_acetate(), {
+                                                 peak(20.0, ch2_or_ch3),
+                                                 peak(60.0, kCH2),
+                                                 peak(171.0, kC),
+                                                 peak(14.0, kCH3),
+                                             });
     EXPECT_EQ(result.verdict.tier, Tier::Active);
 }
 
 TEST(CarbonFit, WithDeptOffOnlyTheCountIsCompared) {
     const SuggestOptions shift_only{.use_dept = false};
     const auto result =
-        fit(kEthylAcetate, {peak(14.0, kCH3), peak(60.0, kCH2), peak(45.5, kCH2), peak(171.0, kC)},
-            shift_only);
+        fit(ethyl_acetate(),
+            {peak(14.0, kCH3), peak(60.0, kCH2), peak(45.5, kCH2), peak(171.0, kC)}, shift_only);
     EXPECT_EQ(result.verdict.tier, Tier::Active);
 }
 
 TEST(CarbonFit, PeaksOfUnknownTypeMatchAnyEnvironment) {
     const auto result = fit(
-        kEthylAcetate, {peak(14.0, kAny), peak(60.0, kAny), peak(171.0, kAny), peak(21.0, kAny)});
+        ethyl_acetate(), {peak(14.0, kAny), peak(60.0, kAny), peak(171.0, kAny), peak(21.0, kAny)});
     EXPECT_EQ(result.verdict.tier, Tier::Active);
 }
 
 TEST(CarbonFit, ARangeCandidateFitsAnyCountInsideItsRange) {
-    // N-acetylpyrrole, CC(=O)N1C=CC=C1: 4 environments always, up to 6 (the ring halves
+    // N-acetylpyrrole (PubChem): 4 environments always, up to 6 (the ring halves
     // may differ: the chemist's rule, 2026-11-08).
-    const auto four = fit("CC(=O)N1C=CC=C1", {
-                                                 peak(22.0, kAny),
-                                                 peak(168.0, kAny),
-                                                 peak(119.0, kAny),
-                                                 peak(113.0, kAny),
-                                             });
+    const auto four = fit(compound_smiles("N-Acetylpyrrole"), {
+                                                                  peak(22.0, kAny),
+                                                                  peak(168.0, kAny),
+                                                                  peak(119.0, kAny),
+                                                                  peak(113.0, kAny),
+                                                              });
     EXPECT_EQ(four.environments_fewest, 4);
     EXPECT_EQ(four.environments_most, 6);
     EXPECT_EQ(four.verdict.tier, Tier::Active);
@@ -149,20 +155,20 @@ TEST(CarbonFit, ARangeCandidateFitsAnyCountInsideItsRange) {
     for (const double shift : {22.0, 168.0, 119.0, 118.0, 113.0, 112.0}) {
         six.push_back(peak(shift, kAny));
     }
-    EXPECT_EQ(fit("CC(=O)N1C=CC=C1", six).verdict.tier, Tier::Active);
+    EXPECT_EQ(fit(compound_smiles("N-Acetylpyrrole"), six).verdict.tier, Tier::Active);
     six.push_back(peak(130.0, kAny));
-    EXPECT_EQ(fit("CC(=O)N1C=CC=C1", six).verdict.tier, Tier::BackBurner);
+    EXPECT_EQ(fit(compound_smiles("N-Acetylpyrrole"), six).verdict.tier, Tier::BackBurner);
 }
 
 TEST(CarbonFit, PeakOrderDoesNotChangeTheResult) {
     auto peaks = ethyl_acetate_peaks();
-    const auto forward = fit(kEthylAcetate, peaks);
+    const auto forward = fit(ethyl_acetate(), peaks);
     std::reverse(peaks.begin(), peaks.end());
-    EXPECT_EQ(fit(kEthylAcetate, peaks), forward);
+    EXPECT_EQ(fit(ethyl_acetate(), peaks), forward);
 }
 
 TEST(CarbonFit, AnEmptyPeakListIsAnError) {
-    const auto result = check_carbon_fit(molecule(kEthylAcetate), {});
+    const auto result = check_carbon_fit(molecule(ethyl_acetate()), {});
     ASSERT_FALSE(result);
     EXPECT_EQ(result.error().code, arise::core::ErrorCode::InvalidArgument);
 }

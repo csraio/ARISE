@@ -9,6 +9,7 @@
 
 #include "arise/chem/molecule.hpp"
 #include "reference_fixtures.hpp"
+#include "test_molecules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -19,6 +20,9 @@
 #include <vector>
 
 namespace {
+
+using arise::test::compound_smiles;
+using arise::test::syntax_case;
 
 using arise::chem::Element;
 using arise::filter::check_confirmed_exchangeable;
@@ -45,30 +49,31 @@ Verdict active() {
 TEST(ConfirmedExchangeable, AnExactCountKeepsMatchingCandidatesAndEliminatesTheRest) {
     // C2H6O: ethanol has one OH, dimethyl ether none.
     const ConfirmedExchangeable one{.min = 1, .max = 1};
-    EXPECT_EQ(check("CCO", one), active());
+    EXPECT_EQ(check(compound_smiles("Ethanol"), one), active());
     const Verdict ether{
         .tier = Tier::Eliminated,
         .reasons = {"confirmed exchangeable H (on O, N, S, Se): 1; the candidate has 0"},
     };
-    EXPECT_EQ(check("COC", one), ether);
+    EXPECT_EQ(check(compound_smiles("Dimethyl Ether"), one), ether);
 }
 
 TEST(ConfirmedExchangeable, ARangeKeepsEveryCountInsideIt) {
     const ConfirmedExchangeable one_to_three{.min = 1, .max = 3};
-    EXPECT_EQ(check("CCO", one_to_three).tier, Tier::Active);       // 1
-    EXPECT_EQ(check("NCC(=O)O", one_to_three).tier, Tier::Active);  // 3
-    const auto none = check("COC", one_to_three);
+    EXPECT_EQ(check(compound_smiles("Ethanol"), one_to_three).tier, Tier::Active);  // 1
+    EXPECT_EQ(check(compound_smiles("Glycine"), one_to_three).tier, Tier::Active);  // 3
+    const auto none = check(compound_smiles("Dimethyl Ether"), one_to_three);
     EXPECT_EQ(none.tier, Tier::Eliminated);
     EXPECT_EQ(none.reasons,
               std::vector<std::string>{
                   "confirmed exchangeable H (on O, N, S, Se): 1 to 3; the candidate has 0"});
-    EXPECT_EQ(check("NC(CO)C(=O)O", one_to_three).tier, Tier::Eliminated);  // serine: 4
+    EXPECT_EQ(check(compound_smiles("DL-Serine"), one_to_three).tier,
+              Tier::Eliminated);  // serine: 4
 }
 
 TEST(ConfirmedExchangeable, NoUpperBoundKeepsEveryCountFromTheMinimumUp) {
     const ConfirmedExchangeable at_least_one{.min = 1, .max = std::nullopt};
-    EXPECT_EQ(check("NC(CO)C(=O)O", at_least_one).tier, Tier::Active);
-    const auto none = check("COC", at_least_one);
+    EXPECT_EQ(check(compound_smiles("DL-Serine"), at_least_one).tier, Tier::Active);
+    const auto none = check(compound_smiles("Dimethyl Ether"), at_least_one);
     EXPECT_EQ(none.reasons,
               std::vector<std::string>{
                   "confirmed exchangeable H (on O, N, S, Se): at least 1; the candidate has 0"});
@@ -76,22 +81,26 @@ TEST(ConfirmedExchangeable, NoUpperBoundKeepsEveryCountFromTheMinimumUp) {
 
 TEST(ConfirmedExchangeable, ZeroConfirmedEliminatesEveryOhNhShOrSeH) {
     const ConfirmedExchangeable zero{.min = 0, .max = 0};
-    EXPECT_EQ(check("COC", zero), active());
-    EXPECT_EQ(check("CCO", zero).tier, Tier::Eliminated);
-    EXPECT_EQ(check("CS", zero).tier, Tier::Eliminated);
-    EXPECT_EQ(check("C[SeH]", zero).tier, Tier::Eliminated);
-    EXPECT_EQ(check("CP", zero), active());  // P-H does not exchange
+    EXPECT_EQ(check(compound_smiles("Dimethyl Ether"), zero), active());
+    EXPECT_EQ(check(compound_smiles("Ethanol"), zero).tier, Tier::Eliminated);
+    EXPECT_EQ(check(compound_smiles("Methanethiol"), zero).tier, Tier::Eliminated);
+    EXPECT_EQ(check(compound_smiles("Methylselenol"), zero).tier, Tier::Eliminated);
+    EXPECT_EQ(check(compound_smiles("Methylphosphine"), zero), active());  // P-H does not exchange
 }
 
 TEST(ConfirmedExchangeable, ZeroToNothingKeepsEveryCandidate) {
     const ConfirmedExchangeable anything{.min = 0, .max = std::nullopt};
-    for (const auto* smiles : {"COC", "CCO", "NC(CO)C(=O)O"}) {
+    for (const auto& smiles : {
+             compound_smiles("Dimethyl Ether"),
+             compound_smiles("Ethanol"),
+             compound_smiles("DL-Serine"),
+         }) {
         EXPECT_EQ(check(smiles, anything), active()) << smiles;
     }
 }
 
 TEST(ConfirmedExchangeable, ANegativeMinimumOrAMaximumBelowItIsAnError) {
-    const auto ethanol = molecule("CCO");
+    const auto ethanol = molecule(compound_smiles("Ethanol"));
     for (const auto confirmed : {
              ConfirmedExchangeable{.min = -1, .max = 1},
              ConfirmedExchangeable{.min = 2, .max = 1},
