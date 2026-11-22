@@ -57,6 +57,8 @@ arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/solvent_peaks.tsv"
                    ARISE_SOLVENT_PEAKS_CHUNKS ARISE_SOLVENT_PEAKS_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/solvent_sources.tsv"
                    ARISE_SOLVENT_SOURCES_CHUNKS ARISE_SOLVENT_SOURCES_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/nmrshiftdb2_pubchem_matches.tsv"
+                   ARISE_NMRSHIFTDB_PUBCHEM_MATCHES_CHUNKS ARISE_NMRSHIFTDB_PUBCHEM_MATCHES_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/nmrshiftdb2_exchangeable.tsv"
                    ARISE_NMRSHIFTDB_EXCHANGEABLE_CHUNKS ARISE_NMRSHIFTDB_EXCHANGEABLE_CHUNK_COUNT)
 arise_embed_chunks("${ARISE_REFERENCE_DIR}/bmrb_cases.tsv"

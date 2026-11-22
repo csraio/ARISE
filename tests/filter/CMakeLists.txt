@@ -1,4 +1,6 @@
 add_executable(arise_filter_tests
+    carbon_fit_reference_test.cpp
+    carbon_fit_test.cpp
     exchangeable_test.cpp
     groups_test.cpp
     holdout_test.cpp)

@@ -292,6 +292,47 @@ TEST(NmrEquivalence, DiazoCarbonNeverSplitsItsGroups) {
     EXPECT_EQ(environments("CC(C)(C)C(=[N+]=[N-])C(C)(C)C"), (Range{3, 3}));
 }
 
+// The chemist's decisions of 2026-11-09, from nmrshiftdb2's assigned spectra (each pattern's
+// support is in the plan; the always-split one is checked by
+// Reference.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth).
+TEST(NmrEquivalence, NitrosamineNGroupsAlwaysSplit) {
+    EXPECT_EQ(environments("CN(C)N=O"), (Range{2, 2}));     // N-nitrosodimethylamine
+    EXPECT_EQ(environments("O=NN1CCCCC1"), (Range{5, 5}));  // N-nitrosopiperidine
+}
+
+// The chemist's decisions of 2026-11-11: three existing rules extended to forms they missed
+// (records 20048921, 90290 and 20025993 of nmrshiftdb2 list these splits).
+TEST(NmrEquivalence, ChargeSeparatedNitrosamineNGroupsAlwaysSplit) {
+    EXPECT_EQ(environments("C[N+](C)=N[O-]"), (Range{2, 2}));
+}
+
+TEST(NmrEquivalence, AnAxiallyChiralAlleneCountsAsAStereocentre) {
+    // Both allene terminals carry two different groups, so the isopropyl methyls may differ.
+    EXPECT_EQ(environments("COC(=O)C=C=CC(C)C"), (Range{7, 8}));
+    // One terminal with two identical groups: no chirality element from the allene, so the
+    // isopropyl methyls stay together (only the terminal pair may split: 6 to 7, not 8).
+    EXPECT_EQ(environments("CC(C)=C=CC(C)C"), (Range{6, 7}));
+}
+
+TEST(NmrEquivalence, ASulfilimineSulfurIsAStereocentre) {
+    // S(=N) with two different groups, like a sulfoxide S(=O): the isopropyl methyls may differ.
+    EXPECT_EQ(environments("CC(C)S(C)=NC(=O)OC(C)(C)C"), (Range{6, 7}));
+}
+
+TEST(NmrEquivalence, GemPairOnARingAtomGivesARange) {
+    // 1,1-dimethylcyclohexane: the two exocyclic methyls may differ.
+    EXPECT_EQ(environments("CC1(C)CCCCC1"), (Range{5, 6}));
+    // A ring atom's two ring neighbours are not a gem pair: cyclohexanol keeps its halves.
+    EXPECT_EQ(environments("OC1CCCCC1"), (Range{4, 4}));
+    // An open-chain atom is not a ring atom: propane's two methyls stay one environment.
+    EXPECT_EQ(environments("CCC"), (Range{2, 2}));
+}
+
+TEST(NmrEquivalence, AlleneTerminalPairGivesARange) {
+    // 2-methylpenta-2,3-diene: the two methyls on one terminal may differ.
+    EXPECT_EQ(environments("CC(C)=C=CC"), (Range{5, 6}));
+}
+
 TEST(NmrEquivalence, DiastereotopicGroupsGiveARange) {
     EXPECT_EQ(environments("CC(C)C(N)C(=O)O"), (Range{4, 5}));           // valine
     EXPECT_EQ(environments("CC(C)CC(C)O"), (Range{5, 6}));               // 4-methyl-2-pentanol

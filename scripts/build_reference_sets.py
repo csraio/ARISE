@@ -682,6 +682,38 @@ def build_oracle(formulas):
     return lines
 
 
+def build_pubchem_matches(sd_path, oracle):
+    """Lines of nmrshiftdb2_pubchem_matches.tsv: every in-scope, InChI-checked nmrshiftdb2
+    record that is one of the cleaned PubChem candidates of the oracle (same InChI skeleton),
+    with that candidate's SMILES exactly as the oracle lists it. ARISE's tests rank all
+    candidates of the record's formula against its assigned 13C spectrum (plan 3c)."""
+    by_skeleton = {}
+    for line in oracle:
+        smiles = line.split("\t", 1)[0]
+        mol = Chem.MolFromSmiles(smiles)
+        if mol is not None:
+            by_skeleton.setdefault(inchi_skeleton(Chem.MolToInchi(mol)), smiles)
+    rows = []
+    for mol in Chem.ForwardSDMolSupplier(str(sd_path), removeHs=False, sanitize=True):
+        if mol is None or not mol.HasProp("NMREDATA_ID") or not mol.HasProp("NMREDATA_INCHI"):
+            continue
+        match = re.search(r"DB_ID=(\d+)", mol.GetProp("NMREDATA_ID"))
+        if not match or not mol.HasProp("NMREDATA_1D_13C"):
+            continue
+        listed = mol.GetProp("NMREDATA_INCHI")
+        try:
+            if not in_scope(mol) or not same_structure(mol, listed):
+                continue
+        except Exception:  # an RDKit failure on one record must not stop the build
+            continue
+        candidate = by_skeleton.get(inchi_skeleton(listed))
+        if candidate is not None:
+            rows.append((int(match.group(1)), candidate))
+    rows = sorted(set(rows))  # a molecule with several spectra appears once
+    print(f"nmrshiftdb2: {len(rows)} records are PubChem oracle candidates", file=sys.stderr)
+    return [f"{db_id}\t{smiles}" for db_id, smiles in rows]
+
+
 def build_cleaning_oracle(formulas):
     """RDKit's verdict on every record of the recorded PubChem formula searches."""
     lines = []
@@ -1049,6 +1081,16 @@ def main():
          "# fragment 'hallmark=atoms' items, fragments separated by ';').",
          "# fragments: " + " ".join(FRAGMENTS)] + oracle,
         [PUBCHEM_URL.format(f) for f in formulas]))
+    (OUT / "nmrshiftdb2_pubchem_matches.tsv").write_text(header(
+        ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",
+         "# available here under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt,",
+         f"# {LICENSE_URL}).",
+         "# nmrshiftdb2 records that are cleaned PubChem candidates of pubchem_rdkit_oracle.tsv",
+         "# (same InChI formula, connection and hydrogen layers). Columns: nmrshiftdb2 id, the",
+         "# candidate's SMILES as the oracle lists it."]
+        + build_pubchem_matches(args.nmrshiftdb, oracle),
+        [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]
+        + [PUBCHEM_URL.format(f) for f in formulas]))
 
     verify_ring_patterns()
     args.chebi.mkdir(parents=True, exist_ok=True)

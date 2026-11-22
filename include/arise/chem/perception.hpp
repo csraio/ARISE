@@ -62,15 +62,25 @@ struct NmrEquivalence {
     ///   =C(CH3)2 methyls of linalool, the alpha-CH2 groups of an oxime; except the cases
     ///   listed under `most`, and no split across a C=N whose N is charged or carries a
     ///   second double bond (diazo C=N+=N-);
-    /// - the two identical N-groups of an amide or thioamide (DMF).
+    /// - the two identical N-groups of an amide or thioamide (DMF);
+    /// - the two identical groups on the amino N of a nitrosamine (N-nitrosodimethylamine),
+    ///   neutral N-N=O or charge-separated [N+]=N-[O-] (2026-11-11):
+    ///   rotamers about the N-N bond measured by 13C NMR (Haky, Saavedra, Hilton, Org. Magn.
+    ///   Reson. 1983, 21, 79-82, doi:10.1002/omr.1270210202; Looney, Phillips, Reilly,
+    ///   J. Am. Chem. Soc. 1957, 79, 6136-6142, doi:10.1021/ja01580a009); added 2026-11-09.
     std::vector<std::size_t> fewest;
     /// The most signals: additionally, splits the rules leave open.
     /// - identical N-groups of carbamates, ureas and enaminones;
     /// - E/Z across an amidine/guanidine C=N, or across a C=C with an amino N on either end
     ///   (enamines, enaminones, ketene aminals);
     /// - identical groups on an amide-type N that each carry a double bond (N-acyl azoles);
-    /// - when any stereocentre exists (sp3 C with four different groups, sulfoxide S,
-    ///   P with three different groups) or at least two prochiral centres:
+    /// - two identical exocyclic groups on an sp3 ring atom (1,1-dimethylcyclohexane's
+    ///   methyls), and two identical groups on a terminal C of an allene whose far terminal
+    ///   carries two different groups (both added 2026-11-09);
+    /// - when any stereocentre exists (sp3 C with four different groups, sulfoxide S(=O) or
+    ///   sulfilimine S(=N) with two different groups, P with three different groups, or an
+    ///   allene whose two terminals each carry two different groups; the last two added
+    ///   2026-11-11) or at least two prochiral centres:
     ///   diastereotopic pairs (an sp3 C or Si, or a quaternary N+, carrying two identical
     ///   groups and two other different ones, e.g. valine's isopropyl; a P, S, Se or I
     ///   centre with one identical pair among three or more groups, e.g. ArI(OAc)2), and
