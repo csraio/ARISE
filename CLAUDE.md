@@ -65,7 +65,7 @@ CMakePresets.json): they take most of asan's time, and dev and release run them.
 
 Benchmark (plan 3d; development-only, `bench/`, built with the tests): `arise_bench` times
 cleaning + pruning of a real 10,000+-row PubChem search (the builder's benchmark case) and
-prints min/median/max per stage; `--budget-ms 100` exits 1 when the slowest scenario's
+prints min/median/max per stage; `--budget-ms <ms>` exits 1 when the slowest scenario's
 median total is over budget. Time only optimized builds:
     cmake --preset release && cmake --build --preset release && build/release/bench/arise_bench
     cmake --preset wasm-release && cmake --build --preset wasm-release   # after emsdk_env.sh
@@ -73,7 +73,9 @@ median total is over budget. Time only optimized builds:
 `tests/golden/equivalence_snapshot.tsv` (written by `build/release/bench/arise_snapshot`)
 fingerprints nmr_equivalence and the carbon fit for every recorded candidate; speed work
 must leave it unchanged. Regenerate it only on purpose, saying why in the commit message.
-CI's `benchmark (report only)` job prints the times without failing on them.
+CI's `benchmark (300 ms guard)` job runs it with `--budget-ms 300`, natively and in wasm,
+so the speed gained cannot slip back (the chemist's decision, 2026-11-22; CI medians then:
+154 ms native, 201 ms wasm). The 100 ms goal is revisited once the web client exists.
 
 ## C++ conventions
 - C++20, no compiler extensions. Allowed: concepts, `std::span`, `<bit>`,
@@ -115,8 +117,9 @@ CI's `benchmark (report only)` job prints the times without failing on them.
   literature cases; cite the source in a comment.
 - Golden tests compare the pipeline to `tests/golden/` within stated tolerances.
   Regenerate golden files only on purpose, with a commit message explaining why.
-- Speed targets, guarded by benchmarks in `bench/`: cleaning + pruning 10,000
-  candidates < 100 ms (native and wasm); full chemistry on 12 candidates < 1 s.
+- Speed targets, measured by benchmarks in `bench/`: cleaning + pruning 10,000
+  candidates < 100 ms (native and wasm; the goal, guarded in CI at 300 ms for now);
+  full chemistry on 12 candidates < 1 s.
   End to end, formula to pruned list should take about 2–5 s, mostly PubChem.
 - The commit gate tests exactly the staged snapshot (exported to `.git/arise-gate/`),
   so unstaged edits and untracked files can neither break nor rescue a commit.

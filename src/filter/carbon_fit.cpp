@@ -5,7 +5,7 @@
 
 #include <algorithm>
 #include <array>
-#include <map>
+#include <limits>
 #include <optional>
 #include <tuple>
 #include <utility>
@@ -25,14 +25,15 @@ std::string format_ppm(core::Ppm shift) {
 }
 
 // The DEPT type of each `most` carbon environment, in order of first appearance; empty for
-// an environment with no DEPT type (methane).
+// an environment with no DEPT type (methane). `classes` come from chem::nmr_equivalence,
+// numbered 0, 1, 2, ... below the atom count, so they index a per-class array.
 std::vector<std::optional<nmr1d::CarbonType>> environment_types(
     const chem::Molecule& molecule, const std::vector<std::size_t>& classes) {
-    std::map<std::size_t, std::size_t> seen;
+    std::vector<bool> seen(classes.size(), false);
     std::vector<std::optional<nmr1d::CarbonType>> types;
     for (std::size_t atom = 0; atom < classes.size(); ++atom) {
-        if (molecule.atoms()[atom].element == chem::Element::C &&
-            seen.emplace(classes[atom], types.size()).second) {
+        if (molecule.atoms()[atom].element == chem::Element::C && !seen[classes[atom]]) {
+            seen[classes[atom]] = true;
             types.push_back(chem::carbon_type(molecule, atom));
         }
     }
@@ -104,7 +105,9 @@ template <typename KindOf>
 std::vector<std::optional<std::size_t>> environment_kinds(const chem::Molecule& molecule,
                                                           const std::vector<std::size_t>& classes,
                                                           KindOf kind_of) {
-    std::map<std::size_t, std::size_t> seen;
+    // Per class: its index in `kinds`, or kNone before its first carbon.
+    constexpr auto kNone = std::numeric_limits<std::size_t>::max();
+    std::vector<std::size_t> index(classes.size(), kNone);
     std::vector<std::optional<std::size_t>> kinds;
     std::vector<bool> mixed;
     for (std::size_t atom = 0; atom < classes.size(); ++atom) {
@@ -112,12 +115,13 @@ std::vector<std::optional<std::size_t>> environment_kinds(const chem::Molecule& 
             continue;
         }
         const std::optional<std::size_t> kind = kind_of(atom);
-        const auto [it, added] = seen.emplace(classes[atom], kinds.size());
-        if (added) {
+        auto& e = index[classes[atom]];
+        if (e == kNone) {
+            e = kinds.size();
             kinds.push_back(kind);
             mixed.push_back(false);
-        } else if (kinds[it->second] != kind) {
-            mixed[it->second] = true;
+        } else if (kinds[e] != kind) {
+            mixed[e] = true;
         }
     }
     for (std::size_t e = 0; e < kinds.size(); ++e) {
@@ -187,18 +191,18 @@ int tier_rank(Tier tier) noexcept {
     return 3;
 }
 
-}  // namespace
+core::Error no_peaks() {
+    return {
+        .code = core::ErrorCode::InvalidArgument,
+        .message = "check_carbon_fit: the 13C list has no peaks",
+    };
+}
 
-core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
-                                         std::span<const nmr1d::CarbonAssignment> peaks,
-                                         SuggestOptions options) {
-    if (peaks.empty()) {
-        return core::Error{
-            .code = core::ErrorCode::InvalidArgument,
-            .message = "check_carbon_fit: the 13C list has no peaks",
-        };
-    }
-    const auto equivalence = chem::nmr_equivalence(molecule);
+// check_carbon_fit on a non-empty peak list, given the candidate's equivalence classes
+// (computed once by the caller, so the confirmed-count overload does not repeat them).
+CarbonFit fit_carbons(const chem::Molecule& molecule,
+                      std::span<const nmr1d::CarbonAssignment> peaks,
+                      const chem::NmrEquivalence& equivalence, SuggestOptions options) {
     const auto environments = environment_types(molecule, equivalence.most);
     CarbonFit fit;
     fit.environments_fewest = chem::carbon_environments(molecule, equivalence.fewest);
@@ -232,6 +236,17 @@ core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
     return fit;
 }
 
+}  // namespace
+
+core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
+                                         std::span<const nmr1d::CarbonAssignment> peaks,
+                                         SuggestOptions options) {
+    if (peaks.empty()) {
+        return no_peaks();
+    }
+    return fit_carbons(molecule, peaks, chem::nmr_equivalence(molecule), options);
+}
+
 core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
                                          std::span<const nmr1d::CarbonAssignment> peaks,
                                          const ConfirmedCarbonCounts& confirmed,
@@ -242,12 +257,12 @@ core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
             .message = "check_carbon_fit: a confirmed carbon count is negative",
         };
     }
-    auto result = check_carbon_fit(molecule, peaks, options);
-    if (!result) {
-        return result;
+    if (peaks.empty()) {
+        return no_peaks();
     }
-    auto fit = std::move(result).value();
-    const auto classes = chem::nmr_equivalence(molecule).most;
+    const auto equivalence = chem::nmr_equivalence(molecule);
+    auto fit = fit_carbons(molecule, peaks, equivalence, options);
+    const auto& classes = equivalence.most;
 
     // Hybridization kinds: 0 sp, 1 sp2, 2 sp3.
     const auto hybridizations = environment_kinds(
