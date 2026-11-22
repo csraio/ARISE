@@ -4,6 +4,7 @@
 #include "arise/core/error.hpp"
 
 #include <algorithm>
+#include <array>
 #include <map>
 #include <optional>
 #include <tuple>
@@ -96,6 +97,84 @@ std::vector<nmr1d::CarbonAssignment> sorted(std::span<const nmr1d::CarbonAssignm
     return ordered;
 }
 
+// Per `most` carbon environment (in order of first appearance), the index of its kind, or
+// std::nullopt for an environment that stands in for any kind. `kind_of(atom)` gives a
+// carbon's kind; an environment whose carbons disagree, or have none, stands in for any.
+template <typename KindOf>
+std::vector<std::optional<std::size_t>> environment_kinds(const chem::Molecule& molecule,
+                                                          const std::vector<std::size_t>& classes,
+                                                          KindOf kind_of) {
+    std::map<std::size_t, std::size_t> seen;
+    std::vector<std::optional<std::size_t>> kinds;
+    std::vector<bool> mixed;
+    for (std::size_t atom = 0; atom < classes.size(); ++atom) {
+        if (molecule.atoms()[atom].element != chem::Element::C) {
+            continue;
+        }
+        const std::optional<std::size_t> kind = kind_of(atom);
+        const auto [it, added] = seen.emplace(classes[atom], kinds.size());
+        if (added) {
+            kinds.push_back(kind);
+            mixed.push_back(false);
+        } else if (kinds[it->second] != kind) {
+            mixed[it->second] = true;
+        }
+    }
+    for (std::size_t e = 0; e < kinds.size(); ++e) {
+        if (mixed[e]) {
+            kinds[e] = std::nullopt;
+        }
+    }
+    return kinds;
+}
+
+// Adds a BackBurner reason for each confirmed minimum (`minimums[k]`, named `names[k]`) the
+// environments of `kinds` cannot supply, counting each stand-in for any one kind, and one for
+// minimums that stand-ins cannot all cover together.
+void check_minimums(const std::vector<std::optional<std::size_t>>& kinds,
+                    std::span<const std::optional<int>> minimums,
+                    std::span<const std::string_view> names, std::vector<std::string>& reasons) {
+    std::vector<int> counts(minimums.size(), 0);
+    int stand_ins = 0;
+    for (const auto& kind : kinds) {
+        if (kind) {
+            ++counts[*kind];
+        } else {
+            ++stand_ins;
+        }
+    }
+    int deficit = 0;
+    bool short_alone = false;
+    std::string confirmed;
+    for (std::size_t k = 0; k < minimums.size(); ++k) {
+        const auto minimum = minimums[k];
+        if (!minimum) {
+            continue;
+        }
+        const int wanted = *minimum;
+        confirmed += (confirmed.empty() ? "" : ", ") + std::string{names[k]};
+        deficit += std::max(0, wanted - counts[k]);
+        if (counts[k] + stand_ins < wanted) {
+            short_alone = true;
+            reasons.push_back("confirmed at least " + std::to_string(wanted) + " " +
+                              std::string{names[k]} + " peaks; the candidate has at most " +
+                              std::to_string(counts[k] + stand_ins) + " " + std::string{names[k]} +
+                              " carbon environments");
+        }
+    }
+    if (!short_alone && deficit > stand_ins) {
+        reasons.push_back("the confirmed " + confirmed +
+                          " counts together need more carbon environments than the candidate "
+                          "has");
+    }
+}
+
+bool any_negative(const ConfirmedCarbonCounts& c) noexcept {
+    const std::array counts{c.sp, c.sp2, c.sp3, c.c, c.ch, c.ch2, c.ch3};
+    return std::any_of(counts.begin(), counts.end(),
+                       [](const std::optional<int>& count) { return count.value_or(0) < 0; });
+}
+
 int tier_rank(Tier tier) noexcept {
     switch (tier) {
         case Tier::Active:
@@ -147,6 +226,66 @@ core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
                 " is left for the peak at " + format_ppm(ordered[p].shift) + " ppm");
         }
     }
+    if (!fit.verdict.reasons.empty()) {
+        fit.verdict.tier = Tier::BackBurner;
+    }
+    return fit;
+}
+
+core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
+                                         std::span<const nmr1d::CarbonAssignment> peaks,
+                                         const ConfirmedCarbonCounts& confirmed,
+                                         SuggestOptions options) {
+    if (any_negative(confirmed)) {
+        return core::Error{
+            .code = core::ErrorCode::InvalidArgument,
+            .message = "check_carbon_fit: a confirmed carbon count is negative",
+        };
+    }
+    auto result = check_carbon_fit(molecule, peaks, options);
+    if (!result) {
+        return result;
+    }
+    auto fit = std::move(result).value();
+    const auto classes = chem::nmr_equivalence(molecule).most;
+
+    // Hybridization kinds: 0 sp, 1 sp2, 2 sp3.
+    const auto hybridizations = environment_kinds(
+        molecule, classes, [&molecule](std::size_t atom) -> std::optional<std::size_t> {
+            const auto h = chem::carbon_hybridization(molecule, atom);
+            if (!h) {
+                return std::nullopt;
+            }
+            return static_cast<std::size_t>(*h) - 1;
+        });
+    const std::array hybridization_minimums{confirmed.sp, confirmed.sp2, confirmed.sp3};
+    constexpr std::array<std::string_view, 3> kHybridizationNames{"sp", "sp2", "sp3"};
+    check_minimums(hybridizations, hybridization_minimums, kHybridizationNames,
+                   fit.verdict.reasons);
+
+    // DEPT kinds: 0 C, 1 CH, 2 CH2, 3 CH3.
+    const auto types = environment_kinds(
+        molecule, classes, [&molecule](std::size_t atom) -> std::optional<std::size_t> {
+            const auto type = chem::carbon_type(molecule, atom);
+            if (!type) {
+                return std::nullopt;
+            }
+            switch (*type) {
+                case nmr1d::CarbonType::C:
+                    return 0;
+                case nmr1d::CarbonType::CH:
+                    return 1;
+                case nmr1d::CarbonType::CH2:
+                    return 2;
+                case nmr1d::CarbonType::CH3:
+                    return 3;
+            }
+            return std::nullopt;
+        });
+    const std::array type_minimums{confirmed.c, confirmed.ch, confirmed.ch2, confirmed.ch3};
+    constexpr std::array<std::string_view, 4> kTypeNames{"C", "CH", "CH2", "CH3"};
+    check_minimums(types, type_minimums, kTypeNames, fit.verdict.reasons);
+
     if (!fit.verdict.reasons.empty()) {
         fit.verdict.tier = Tier::BackBurner;
     }

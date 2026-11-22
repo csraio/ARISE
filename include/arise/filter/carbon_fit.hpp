@@ -3,6 +3,7 @@
 #include "arise/chem/molecule.hpp"
 #include "arise/core/result.hpp"
 #include "arise/filter/groups.hpp"
+#include "arise/filter/hybridization.hpp"
 #include "arise/nmr1d/dept.hpp"
 
 #include <cstddef>
@@ -45,6 +46,20 @@ struct CarbonFit {
 [[nodiscard]] core::Result<CarbonFit> check_carbon_fit(
     const chem::Molecule& molecule, std::span<const nmr1d::CarbonAssignment> peaks,
     SuggestOptions options = {});
+
+/// check_carbon_fit, then the chemist's confirmed minimum counts (plan 3c-b): the candidate's
+/// `most` carbon environments must be able to supply every confirmed count at once. An
+/// environment counts for the hybridization (chem::carbon_hybridization) and DEPT type
+/// (chem::carbon_type) of its carbons; one whose carbons have no single hybridization
+/// (charged carbons) or no DEPT type (methane) stands in for any one type. Hybridization and
+/// DEPT-type counts are checked separately. Each type the environments cannot supply is a
+/// BackBurner reason ("confirmed at least 3 sp2 peaks; the candidate has at most 2 sp2 carbon
+/// environments"), and so is a set of counts that stand-in environments cannot all cover
+/// ("together"). Maximums are never used against a candidate. Reasons follow those of the
+/// peak check. InvalidArgument for a negative count, and as check_carbon_fit.
+[[nodiscard]] core::Result<CarbonFit> check_carbon_fit(
+    const chem::Molecule& molecule, std::span<const nmr1d::CarbonAssignment> peaks,
+    const ConfirmedCarbonCounts& confirmed, SuggestOptions options = {});
 
 /// Candidate indices in ranking order: Active before BackBurner (and Eliminated last),
 /// then fewer assumed overlaps, then fewer reasons, then input order (stable).
