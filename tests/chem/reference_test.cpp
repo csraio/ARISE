@@ -153,6 +153,8 @@ struct OracleEntry {
     std::vector<int> inchi_classes;  // standard InChI's equivalence classes; empty if none
     // Per fragment (";"), the atoms RDKit's pattern matches per hallmark ("C=O_carbon=3,7/...").
     std::string_view key_atoms;
+    // RDKit's hybridization of each atom: 1 sp, 2 sp2, 3 sp3; 0 non-carbon or other.
+    std::vector<int> hybridizations;
 };
 
 // Oracle lines of `text` (pubchem_rdkit_oracle.tsv, or the accepted rows of
@@ -164,7 +166,7 @@ std::vector<OracleEntry> oracle(std::string_view text) {
             continue;
         }
         const auto fields = split(line, '\t');
-        if (fields.size() != 8) {  // the last, RDKit's carbon hybridizations, is read elsewhere
+        if (fields.size() != 8) {
             ADD_FAILURE() << "malformed oracle line: " << line;
             continue;
         }
@@ -176,6 +178,7 @@ std::vector<OracleEntry> oracle(std::string_view text) {
             .aromaticity_differs = fields[4] == "1",
             .inchi_classes = fields[5] == "-" ? std::vector<int>{} : integers(fields[5]),
             .key_atoms = fields[6],
+            .hybridizations = integers(fields[7]),
         });
     }
     return entries;
@@ -220,6 +223,70 @@ TEST(Reference, EveryOracleMoleculeParses) {
             problems.push_back(std::string{entry.smiles} + ": " + molecule.error().message);
         }
     }
+    expect_no_disagreements(problems, entries.size());
+}
+
+// ARISE's and RDKit's hybridization codes for the atoms of `molecule` that ARISE assigns or
+// that are not carbons (1 sp, 2 sp2, 3 sp3, 0 none); charged carbons are counted in
+// `charged`, and `charged_assigned` records whether ARISE assigned any of them.
+struct HybridizationComparison {
+    std::vector<int> ours;
+    std::vector<int> theirs;
+    std::size_t carbons = 0;
+    std::size_t charged = 0;
+    bool charged_assigned = false;
+};
+
+HybridizationComparison compare_hybridizations(const arise::chem::Molecule& molecule,
+                                               const std::vector<int>& rdkit) {
+    HybridizationComparison result;
+    for (std::size_t i = 0; i < molecule.atoms().size(); ++i) {
+        const auto& atom = molecule.atoms()[i];
+        const auto hybridization = arise::chem::carbon_hybridization(molecule, i);
+        const bool carbon = atom.element == arise::chem::Element::C;
+        if (carbon && atom.charge != 0) {
+            ++result.charged;
+            result.charged_assigned = result.charged_assigned || hybridization.has_value();
+            continue;
+        }
+        result.carbons += carbon ? 1U : 0U;
+        result.ours.push_back(hybridization ? static_cast<int>(*hybridization) : 0);
+        result.theirs.push_back(carbon ? rdkit[i] : 0);
+    }
+    return result;
+}
+
+TEST(Reference, CarbonHybridizationsMatchRdkit) {
+    // chem::carbon_hybridization counts bonds (the chemist's rule, 2026-11-21); RDKit
+    // assigns hybridization its own way. They must agree on every uncharged carbon; charged
+    // carbons, where they can differ, are left unassigned by ARISE.
+    std::vector<std::string> problems;
+    std::size_t carbons = 0;
+    std::size_t charged = 0;
+    const auto entries = oracle();
+    for (const auto& entry : entries) {
+        const auto parsed = arise::chem::parse_smiles(entry.smiles);
+        if (!parsed.ok()) {
+            continue;  // reported by EveryOracleMoleculeParses
+        }
+        if (entry.hybridizations.size() != parsed.value().atoms().size()) {
+            problems.push_back(std::string{entry.smiles} + ": oracle atom count differs");
+            continue;
+        }
+        const auto result = compare_hybridizations(parsed.value(), entry.hybridizations);
+        carbons += result.carbons;
+        charged += result.charged;
+        if (result.charged_assigned) {
+            problems.push_back(std::string{entry.smiles} + ": a charged carbon was assigned");
+        }
+        if (result.ours != result.theirs) {
+            problems.push_back(std::string{entry.smiles} + ": ARISE " + join(result.ours) +
+                               " vs RDKit " + join(result.theirs));
+        }
+    }
+    std::cout << "[ checked ] " << carbons << " uncharged carbons; " << charged
+              << " charged carbons left unassigned\n";
+    EXPECT_GT(carbons, 40000U);
     expect_no_disagreements(problems, entries.size());
 }
 

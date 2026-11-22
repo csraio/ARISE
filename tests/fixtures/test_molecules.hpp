@@ -18,6 +18,7 @@
 #include <map>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace arise::test {
 
@@ -92,6 +93,35 @@ inline long long compound_cid(std::string_view name) {
         return 0;
     }
     return std::stoll(found->second);
+}
+
+/// RDKit's hybridization of each atom of the PubChem test compound `name`, in the atom
+/// order of compound_smiles(name): 1 sp, 2 sp2, 3 sp3, 0 for non-carbons and any other
+/// RDKit hybridization (test_compounds.tsv). Fails the calling test, and returns an empty
+/// list, when `name` is not listed.
+inline std::vector<int> compound_hybridizations(std::string_view name) {
+    static const auto rows = detail::table(join_chunks(kTestCompoundsChunks), 5);
+    const auto found = rows.find(name);
+    if (found == rows.end()) {
+        ADD_FAILURE() << "no PubChem test compound named '" << name << "'";
+        return {};
+    }
+    std::vector<int> codes;
+    for (const char c : found->second) {
+        if (c >= '0' && c <= '9') {
+            codes.push_back(c - '0');
+        }
+    }
+    return codes;
+}
+
+/// The names of every PubChem test compound (test_compounds.tsv), sorted.
+inline std::vector<std::string> compound_names() {
+    std::vector<std::string> names;
+    for (const auto& [name, smiles] : detail::table(join_chunks(kTestCompoundsChunks), 0)) {
+        names.push_back(name);
+    }
+    return names;
 }
 
 /// The string of the SMILES-reader case `name` (smiles_syntax_cases.tsv). Fails the
