@@ -3,8 +3,10 @@
 #include <algorithm>
 #include <array>
 #include <iterator>
+#include <limits>
 #include <map>
 #include <set>
+#include <span>
 #include <utility>
 
 namespace arise::chem {
@@ -37,17 +39,86 @@ BondOrder order_of(const Molecule& molecule, std::size_t bond) noexcept {
     return molecule.bonds()[bond].order;
 }
 
-// Every simple cycle of `size` atoms among C/N/O/S, each listed once in walking order,
-// starting at its smallest atom.
+// Per bond: whether it lies in a ring, i.e. is not a bridge (removing it does not
+// disconnect its two atoms). Bridges by depth-first low-links (Tarjan), iterative so a
+// long chain cannot overflow the stack; the parent bond is skipped by index.
+std::vector<bool> ring_bonds(const Molecule& molecule) {
+    const std::size_t n = molecule.atoms().size();
+    constexpr auto kUnseen = std::numeric_limits<std::size_t>::max();
+    std::vector<std::size_t> entered(n, kUnseen);
+    std::vector<std::size_t> low(n, 0);
+    std::vector<bool> in_ring(molecule.bonds().size(), true);
+    struct Frame {
+        std::size_t atom;
+        std::size_t parent_bond;
+        std::size_t next;  // index into bonds_of(atom)
+    };
+    std::vector<Frame> stack;
+    std::size_t clock = 0;
+    for (std::size_t root = 0; root < n; ++root) {
+        if (entered[root] != kUnseen) {
+            continue;
+        }
+        entered[root] = low[root] = clock++;
+        stack.push_back({.atom = root, .parent_bond = kUnseen, .next = 0});
+        while (!stack.empty()) {
+            auto& frame = stack.back();
+            const auto bonds = molecule.bonds_of(frame.atom);
+            if (frame.next < bonds.size()) {
+                const auto bond = bonds[frame.next++];
+                if (bond == frame.parent_bond) {
+                    continue;
+                }
+                const auto other = molecule.neighbor(bond, frame.atom);
+                if (entered[other] == kUnseen) {
+                    entered[other] = low[other] = clock++;
+                    stack.push_back({.atom = other, .parent_bond = bond, .next = 0});
+                } else {
+                    low[frame.atom] = std::min(low[frame.atom], entered[other]);
+                }
+                continue;
+            }
+            const Frame done = frame;
+            stack.pop_back();
+            if (!stack.empty()) {
+                const auto parent = stack.back().atom;
+                low[parent] = std::min(low[parent], low[done.atom]);
+                if (low[done.atom] > entered[parent]) {
+                    in_ring[done.parent_bond] = false;
+                }
+            }
+        }
+    }
+    return in_ring;
+}
+
+// Per atom: C, N, O or S (is_ring_element).
+std::vector<bool> ring_elements(const Molecule& molecule) {
+    std::vector<bool> allowed;
+    allowed.reserve(molecule.atoms().size());
+    for (const auto& atom : molecule.atoms()) {
+        allowed.push_back(is_ring_element(atom.element));
+    }
+    return allowed;
+}
+
+// Every simple cycle of `size` atoms among the `allowed` atoms, each listed once in walking
+// order, starting at its smallest atom. Only ring bonds are walked: a cycle never uses a
+// bridge, so skipping bridges finds the same cycles in the same order, faster.
 class RingFinder {
 public:
-    RingFinder(const Molecule& molecule, std::size_t size) : molecule_{&molecule}, size_{size} {}
+    RingFinder(const Molecule& molecule, std::size_t size, const std::vector<bool>& ring_bonds,
+               const std::vector<bool>& allowed)
+        : molecule_{&molecule}, size_{size}, ring_bonds_{&ring_bonds}, allowed_{&allowed} {}
 
     std::vector<Ring> find() {
+        on_path_.assign(molecule_->atoms().size(), false);
         for (std::size_t start = 0; start < molecule_->atoms().size(); ++start) {
-            if (is_ring_element(molecule_->atoms()[start].element)) {
+            if ((*allowed_)[start]) {
                 path_ = {start};
+                on_path_[start] = true;
                 extend(start);
+                on_path_[start] = false;
             }
         }
         return std::move(rings_);
@@ -57,6 +128,9 @@ private:
     void extend(std::size_t start) {
         const std::size_t last = path_.back();
         for (const auto bond : molecule_->bonds_of(last)) {
+            if (!(*ring_bonds_)[bond]) {
+                continue;
+            }
             const std::size_t next = molecule_->neighbor(bond, last);
             if (path_.size() == size_) {
                 if (next == start) {
@@ -64,12 +138,13 @@ private:
                 }
                 continue;
             }
-            if (next <= start || !is_ring_element(molecule_->atoms()[next].element) ||
-                std::find(path_.begin(), path_.end(), next) != path_.end()) {
+            if (next <= start || on_path_[next] || !(*allowed_)[next]) {
                 continue;
             }
             path_.push_back(next);
+            on_path_[next] = true;
             extend(start);
+            on_path_[next] = false;
             path_.pop_back();
         }
     }
@@ -83,7 +158,10 @@ private:
 
     const Molecule* molecule_;  // not null
     std::size_t size_;
+    const std::vector<bool>* ring_bonds_;  // not null; per bond, from ring_bonds()
+    const std::vector<bool>* allowed_;     // not null; per atom
     std::vector<std::size_t> path_;
+    std::vector<bool> on_path_;  // per atom: on path_
     std::vector<Ring> rings_;
 };
 
@@ -113,7 +191,7 @@ bool has_only_single_bonds(const Molecule& molecule, std::size_t atom) {
 // Whether ring atom `i` has exactly one double bond, lying in the ring or in an aromatic
 // ring already found (fused systems).
 bool pi_carbon(const Molecule& molecule, const Ring& ring, std::size_t i,
-               const std::set<std::size_t>& aromatic_bonds) {
+               const std::vector<bool>& aromatic_bonds) {
     const std::size_t atom = ring[i];
     const auto partner = sole_double_partner(molecule, atom);
     if (!partner.has_value()) {
@@ -122,14 +200,14 @@ bool pi_carbon(const Molecule& molecule, const Ring& ring, std::size_t i,
     const std::size_t n = ring.size();
     const bool in_ring = *partner == ring[(i + 1) % n] || *partner == ring[(i + n - 1) % n];
     const auto bond = find_bond(molecule, atom, *partner);
-    return in_ring || (bond.has_value() && aromatic_bonds.contains(*bond));
+    return in_ring || (bond.has_value() && aromatic_bonds[*bond]);
 }
 
 // Six-membered: every atom C or N with one pi bond. Five-membered: one lone-pair donor
 // (O or S with only its two ring bonds, or N with only single bonds) and four carbons with
 // one pi bond each (Huckel 6 pi: furan, thiophene, pyrrole).
 bool is_aromatic(const Molecule& molecule, const Ring& ring,
-                 const std::set<std::size_t>& aromatic_bonds) {
+                 const std::vector<bool>& aromatic_bonds) {
     const auto& atoms = molecule.atoms();
     if (ring.size() == 6) {
         for (std::size_t i = 0; i < 6; ++i) {
@@ -162,16 +240,35 @@ bool is_aromatic(const Molecule& molecule, const Ring& ring,
 }
 
 struct Aromaticity {
-    std::vector<Ring> rings;      // in walking order
-    std::set<std::size_t> bonds;  // bond indices inside aromatic rings
-    std::vector<bool> atoms;      // per atom: in an aromatic ring
+    std::vector<Ring> rings;       // in walking order
+    std::vector<bool> bonds;       // per bond: inside an aromatic ring
+    std::vector<bool> atoms;       // per atom: in an aromatic ring
+    std::vector<bool> ring_bonds;  // per bond: in any ring (ring_bonds())
 };
 
 Aromaticity perceive_aromaticity(const Molecule& molecule) {
     Aromaticity result;
     result.atoms.assign(molecule.atoms().size(), false);
-    auto pending = RingFinder{molecule, 6}.find();
-    auto five = RingFinder{molecule, 5}.find();
+    result.bonds.assign(molecule.bonds().size(), false);
+    // Only atoms that can pass is_aromatic(): C or N with one double bond (sole double
+    // partner), or a lone-pair donor (N with only single bonds, O or S with only its two
+    // single bonds). A ring through any other atom is never aromatic, so leaving such atoms
+    // out finds the same aromatic rings in the same order.
+    std::vector<bool> allowed;
+    allowed.reserve(molecule.atoms().size());
+    for (std::size_t atom = 0; atom < molecule.atoms().size(); ++atom) {
+        const auto element = molecule.atoms()[atom].element;
+        const bool pi = (element == Element::C || element == Element::N) &&
+                        sole_double_partner(molecule, atom).has_value();
+        const bool donor =
+            has_only_single_bonds(molecule, atom) &&
+            (element == Element::N || ((element == Element::O || element == Element::S) &&
+                                       molecule.bonds_of(atom).size() == 2));
+        allowed.push_back(pi || donor);
+    }
+    result.ring_bonds = ring_bonds(molecule);
+    auto pending = RingFinder{molecule, 6, result.ring_bonds, allowed}.find();
+    auto five = RingFinder{molecule, 5, result.ring_bonds, allowed}.find();
     pending.insert(pending.end(), five.begin(), five.end());
     bool changed = true;
     while (changed) {
@@ -184,7 +281,7 @@ Aromaticity perceive_aromaticity(const Molecule& molecule) {
             const std::size_t n = it->size();
             for (std::size_t i = 0; i < n; ++i) {
                 if (const auto bond = find_bond(molecule, (*it)[i], (*it)[(i + 1) % n])) {
-                    result.bonds.insert(*bond);
+                    result.bonds[*bond] = true;
                 }
                 result.atoms[(*it)[i]] = true;
             }
@@ -196,27 +293,53 @@ Aromaticity perceive_aromaticity(const Molecule& molecule) {
     return result;
 }
 
-// Dense ranks of `signatures`: equal signatures get equal ranks, ordered by value, so
-// the ranks do not depend on atom order.
-std::vector<int> rank(const std::vector<std::vector<int>>& signatures) {
-    std::map<std::vector<int>, int> ranks;
-    for (const auto& signature : signatures) {
-        ranks.emplace(signature, 0);
+// Per-atom integer signatures stored end to end: signature i is
+// values[offsets[i], offsets[i + 1]).
+struct Signatures {
+    std::vector<int> values;
+    std::vector<std::size_t> offsets{0};
+
+    void clear() {
+        values.clear();
+        offsets.assign(1, 0);
     }
+    void close() { offsets.push_back(values.size()); }
+    [[nodiscard]] std::size_t size() const noexcept { return offsets.size() - 1; }
+    [[nodiscard]] std::span<const int> operator[](std::size_t i) const noexcept {
+        return std::span<const int>{values}.subspan(offsets[i], offsets[i + 1] - offsets[i]);
+    }
+};
+
+// Dense ranks of `signatures`: equal signatures get equal ranks, ordered by value
+// (lexicographically, a shorter prefix first), so the ranks do not depend on atom order.
+std::vector<int> rank(const Signatures& signatures, std::vector<std::size_t>& order) {
+    const auto less = [&](std::size_t a, std::size_t b) {
+        const auto x = signatures[a];
+        const auto y = signatures[b];
+        return std::lexicographical_compare(x.begin(), x.end(), y.begin(), y.end());
+    };
+    const std::size_t n = signatures.size();
+    order.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        order[i] = i;
+    }
+    std::sort(order.begin(), order.end(), less);
+    std::vector<int> result(n);
     int next = 0;
-    for (auto& [signature, value] : ranks) {
-        value = next++;
-    }
-    std::vector<int> result;
-    result.reserve(signatures.size());
-    for (const auto& signature : signatures) {
-        result.push_back(ranks.at(signature));
+    for (std::size_t k = 0; k < n; ++k) {
+        if (k > 0 && less(order[k - 1], order[k])) {
+            ++next;
+        }
+        result[order[k]] = next;
     }
     return result;
 }
 
 std::size_t distinct(const std::vector<int>& labels) {
-    return std::set<int>(labels.begin(), labels.end()).size();
+    std::vector<int> sorted = labels;
+    std::sort(sorted.begin(), sorted.end());
+    return static_cast<std::size_t>(
+        std::distance(sorted.begin(), std::unique(sorted.begin(), sorted.end())));
 }
 
 bool is_carbonyl_carbon(const Molecule& molecule, std::size_t atom) {
@@ -245,7 +368,19 @@ bool is_heavy(const Molecule& molecule, std::size_t atom) {
 std::set<std::size_t> delocalized_bonds(const Molecule& molecule) {
     const auto& atoms = molecule.atoms();
     std::set<std::size_t> result;
+    // A terminal heavy neighbour without hydrogens: the only atoms the rule looks at.
+    const auto terminal = [&](std::size_t end) {
+        return atoms[end].element != Element::H && molecule.hydrogen_count(end) == 0 &&
+               molecule.bonds_of(end).size() == 1;
+    };
     for (std::size_t centre = 0; centre < atoms.size(); ++centre) {
+        const auto centre_bonds = molecule.bonds_of(centre);
+        const auto terminals = std::count_if(
+            centre_bonds.begin(), centre_bonds.end(),
+            [&](std::size_t bond) { return terminal(molecule.neighbor(bond, centre)); });
+        if (terminals < 2) {
+            continue;  // the rule needs one of each kind, so at least two terminals
+        }
         std::map<Element, std::vector<std::size_t>> by_element;
         std::map<Element, std::pair<bool, bool>> kinds;  // {double neutral, single anion}
         for (const auto bond : molecule.bonds_of(centre)) {
@@ -277,64 +412,170 @@ std::set<std::size_t> delocalized_bonds(const Molecule& molecule) {
 // that share a charge by resonance (delocalized_bonds) get one charge invariant.
 // Hydrogen atoms enter only through hydrogen_count, never as neighbours, so a methyl
 // written with explicit [H] atoms matches one with implicit hydrogens.
-std::vector<int> initial_labels(const Molecule& molecule) {
+// `delocalized` is delocalized_bonds(molecule).
+std::vector<int> initial_labels(const Molecule& molecule,
+                                const std::set<std::size_t>& delocalized) {
     const auto& atoms = molecule.atoms();
     std::vector<bool> shared(atoms.size(), false);
-    for (const auto bond : delocalized_bonds(molecule)) {
+    for (const auto bond : delocalized) {
         shared[molecule.bonds()[bond].first] = true;
         shared[molecule.bonds()[bond].second] = true;
     }
-    std::vector<std::vector<int>> signatures(atoms.size());
+    Signatures signatures;
     for (std::size_t i = 0; i < atoms.size(); ++i) {
         const auto bonds = molecule.bonds_of(i);
         const auto heavy_degree = std::count_if(bonds.begin(), bonds.end(), [&](std::size_t b) {
             return is_heavy(molecule, molecule.neighbor(b, i));
         });
-        signatures[i] = {
-            static_cast<int>(atoms[i].element),
-            atoms[i].isotope,
-            shared[i] && molecule.bonds_of(i).size() == 1 ? kDelocalizedCharge : atoms[i].charge,
-            molecule.hydrogen_count(i),
-            static_cast<int>(heavy_degree),
-        };
+        signatures.values.insert(
+            signatures.values.end(),
+            {
+                static_cast<int>(atoms[i].element),
+                atoms[i].isotope,
+                shared[i] && molecule.bonds_of(i).size() == 1 ? kDelocalizedCharge
+                                                              : atoms[i].charge,
+                molecule.hydrogen_count(i),
+                static_cast<int>(heavy_degree),
+            });
+        signatures.close();
     }
-    return rank(signatures);
+    std::vector<std::size_t> order;
+    return rank(signatures, order);
 }
 
-// Refines `labels` on neighbour labels until the number of classes stops growing. Bonds
-// of aromatic rings count as one kind, so Kekule benzene stays symmetric; so do the bonds
-// to resonance-shared terminal atoms, so the two O of a nitro group stay equivalent.
-std::vector<int> refine(const Molecule& molecule, const Aromaticity& aromaticity,
-                        std::vector<int> labels) {
+// Each atom's heavy neighbours with the code of the bond to them: the bond order, except
+// that bonds of aromatic rings count as one kind, so Kekule benzene stays symmetric, and so
+// do the bonds to resonance-shared terminal atoms, so the two O of a nitro group stay
+// equivalent. Worked out once per molecule; refine() reads it every round.
+struct Neighbourhood {
+    struct Link {
+        int code;
+        std::size_t atom;
+    };
+    std::vector<Link> links;           // all atoms' links, end to end
+    std::vector<std::size_t> offsets;  // atom i's links: [offsets[i], offsets[i + 1])
+
+    [[nodiscard]] std::size_t atoms() const noexcept { return offsets.size() - 1; }
+    [[nodiscard]] std::span<const Link> of(std::size_t atom) const noexcept {
+        return std::span<const Link>{links}.subspan(offsets[atom],
+                                                    offsets[atom + 1] - offsets[atom]);
+    }
+};
+
+// `delocalized` is delocalized_bonds(molecule).
+Neighbourhood neighbourhood(const Molecule& molecule, const Aromaticity& aromaticity,
+                            const std::set<std::size_t>& delocalized) {
     const std::size_t n = molecule.atoms().size();
-    const auto delocalized = delocalized_bonds(molecule);
-    std::vector<std::vector<int>> signatures(n);
-    for (std::size_t round = 0; round <= n; ++round) {
-        for (std::size_t i = 0; i < n; ++i) {
-            std::vector<std::pair<int, int>> around;
-            for (const auto bond : molecule.bonds_of(i)) {
-                const auto other = molecule.neighbor(bond, i);
-                if (!is_heavy(molecule, other)) {
-                    continue;
-                }
-                int code = static_cast<int>(order_of(molecule, bond));
-                if (aromaticity.bonds.contains(bond)) {
-                    code = kAromaticBondCode;
-                } else if (delocalized.contains(bond)) {
-                    code = kDelocalizedBondCode;
-                }
-                around.emplace_back(code, labels[other]);
+    Neighbourhood result;
+    result.offsets.push_back(0);
+    for (std::size_t i = 0; i < n; ++i) {
+        for (const auto bond : molecule.bonds_of(i)) {
+            const auto other = molecule.neighbor(bond, i);
+            if (!is_heavy(molecule, other)) {
+                continue;
             }
-            std::sort(around.begin(), around.end());
-            signatures[i] = {labels[i]};
-            for (const auto& [code, label] : around) {
-                signatures[i].push_back(code);
-                signatures[i].push_back(label);
+            int code = static_cast<int>(order_of(molecule, bond));
+            if (aromaticity.bonds[bond]) {
+                code = kAromaticBondCode;
+            } else if (delocalized.contains(bond)) {
+                code = kDelocalizedBondCode;
+            }
+            result.links.push_back({.code = code, .atom = other});
+        }
+        result.offsets.push_back(result.links.size());
+    }
+    return result;
+}
+
+// Work space for refine(), reused across rounds.
+struct RefineWork {
+    Signatures signatures;
+    std::vector<std::pair<int, int>> around;
+    std::vector<std::size_t> order;
+    std::vector<std::size_t> starts;
+};
+
+// One refinement round: the dense ranks of the signatures (labels[i], then atom i's sorted
+// (bond code, neighbour label) pairs), ordered lexicographically, as rank() would give.
+// Atoms are grouped by label with a stable counting pass, so groups come in label order;
+// only groups of two or more need their signatures, built and sorted within the group. An
+// atom alone in its group keeps its place whatever its neighbours. Labels must be
+// non-negative. `classes` receives the number of ranks.
+std::vector<int> refine_round(const Neighbourhood& neighbourhood, const std::vector<int>& labels,
+                              RefineWork& work, std::size_t& classes) {
+    const std::size_t n = labels.size();
+    // One slot per label value 0..max, plus one.
+    const std::size_t values =
+        n == 0 ? 0 : static_cast<std::size_t>(*std::max_element(labels.begin(), labels.end())) + 1;
+    auto& starts = work.starts;
+    starts.assign(values + 1, 0);
+    for (const int label : labels) {
+        ++starts[static_cast<std::size_t>(label) + 1];
+    }
+    // Signatures of atoms that share their label; empty for the others.
+    auto& signatures = work.signatures;
+    signatures.clear();
+    for (std::size_t i = 0; i < n; ++i) {
+        if (starts[static_cast<std::size_t>(labels[i]) + 1] > 1) {
+            work.around.clear();
+            for (const auto& link : neighbourhood.of(i)) {
+                work.around.emplace_back(link.code, labels[link.atom]);
+            }
+            std::sort(work.around.begin(), work.around.end());
+            signatures.values.push_back(labels[i]);
+            for (const auto& [code, label] : work.around) {
+                signatures.values.push_back(code);
+                signatures.values.push_back(label);
             }
         }
-        auto refined = rank(signatures);
-        const bool stable = distinct(refined) == distinct(labels);
+        signatures.close();
+    }
+    for (std::size_t k = 1; k < starts.size(); ++k) {
+        starts[k] += starts[k - 1];
+    }
+    auto& order = work.order;
+    order.resize(n);
+    for (std::size_t i = 0; i < n; ++i) {
+        order[starts[static_cast<std::size_t>(labels[i])]++] = i;
+    }
+    const auto less = [&](std::size_t a, std::size_t b) {
+        const auto x = signatures[a];
+        const auto y = signatures[b];
+        return std::lexicographical_compare(x.begin(), x.end(), y.begin(), y.end());
+    };
+    // starts[label] is now where the next label's group begins; sort each group of 2+.
+    std::size_t begin = 0;
+    for (const auto end : starts) {
+        if (end - begin > 1) {
+            std::sort(order.begin() + static_cast<std::ptrdiff_t>(begin),
+                      order.begin() + static_cast<std::ptrdiff_t>(end), less);
+        }
+        begin = end;
+    }
+    std::vector<int> result(n);
+    int next = 0;
+    for (std::size_t k = 0; k < n; ++k) {
+        if (k > 0 && (labels[order[k - 1]] != labels[order[k]] || less(order[k - 1], order[k]))) {
+            ++next;
+        }
+        result[order[k]] = next;
+    }
+    classes = n == 0 ? 0 : static_cast<std::size_t>(next) + 1;
+    return result;
+}
+
+// Refines `labels` (all non-negative) on neighbour labels (bond code, label) until the
+// number of classes stops growing.
+std::vector<int> refine(const Neighbourhood& neighbourhood, std::vector<int> labels) {
+    const std::size_t n = neighbourhood.atoms();
+    RefineWork work;
+    std::size_t classes = distinct(labels);
+    for (std::size_t round = 0; round <= n; ++round) {
+        std::size_t refined_classes = 0;
+        auto refined = refine_round(neighbourhood, labels, work, refined_classes);
+        const bool stable = refined_classes == classes;
         labels = std::move(refined);
+        classes = refined_classes;
         if (stable) {
             break;
         }
@@ -343,12 +584,21 @@ std::vector<int> refine(const Molecule& molecule, const Aromaticity& aromaticity
 }
 
 std::vector<std::size_t> first_appearance(const std::vector<int>& labels) {
-    std::map<int, std::size_t> first_seen;
+    constexpr auto kUnseen = std::numeric_limits<std::size_t>::max();
+    const std::size_t values =
+        labels.empty()
+            ? 0
+            : static_cast<std::size_t>(*std::max_element(labels.begin(), labels.end())) + 1;
+    std::vector<std::size_t> first_seen(values, kUnseen);
     std::vector<std::size_t> classes;
     classes.reserve(labels.size());
+    std::size_t next = 0;
     for (const int label : labels) {
-        const auto [it, inserted] = first_seen.emplace(label, first_seen.size());
-        classes.push_back(it->second);
+        auto& seen = first_seen[static_cast<std::size_t>(label)];
+        if (seen == kUnseen) {
+            seen = next++;
+        }
+        classes.push_back(seen);
     }
     return classes;
 }
@@ -373,6 +623,14 @@ std::vector<std::size_t> heavy_neighbors(const Molecule& molecule, std::size_t a
         }
     }
     return result;
+}
+
+// Number of heavy neighbours of `atom` (heavy_neighbors(...).size(), without the list).
+std::size_t heavy_degree(const Molecule& molecule, std::size_t atom) {
+    const auto bonds = molecule.bonds_of(atom);
+    return static_cast<std::size_t>(std::count_if(bonds.begin(), bonds.end(), [&](std::size_t b) {
+        return is_heavy(molecule, molecule.neighbor(b, atom));
+    }));
 }
 
 bool has_double_bond_to(const Molecule& molecule, std::size_t atom, Element element) {
@@ -462,7 +720,7 @@ std::vector<Pick> ez_splits(const Molecule& molecule, const Aromaticity& aromati
     const auto& atoms = molecule.atoms();
     for (std::size_t b = 0; b < molecule.bonds().size(); ++b) {
         const auto& bond = molecule.bonds()[b];
-        if (bond.order != BondOrder::Double || aromaticity.bonds.contains(b)) {
+        if (bond.order != BondOrder::Double || aromaticity.bonds[b]) {
             continue;
         }
         for (const auto& [end, other] :
@@ -598,42 +856,21 @@ std::vector<Pick> rotation_splits(const Molecule& molecule, const std::vector<in
     return picks;
 }
 
-// Whether `bond` lies in a ring: its two atoms stay connected without it.
-bool bond_in_ring(const Molecule& molecule, std::size_t bond) {
-    const auto& ends = molecule.bonds()[bond];
-    std::vector<bool> seen(molecule.atoms().size(), false);
-    std::vector<std::size_t> stack{ends.first};
-    seen[ends.first] = true;
-    while (!stack.empty()) {
-        const auto atom = stack.back();
-        stack.pop_back();
-        for (const auto b : molecule.bonds_of(atom)) {
-            const auto next = molecule.neighbor(b, atom);
-            if (b != bond && !seen[next]) {
-                if (next == ends.second) {
-                    return true;
-                }
-                seen[next] = true;
-                stack.push_back(next);
-            }
-        }
-    }
-    return false;
-}
-
 // The chemist's range rules of 2026-11-09 (nmrshiftdb2 support in the plan):
 // - gem pair on a ring atom: two identical exocyclic groups on an sp3 ring atom (e.g. the
 //   methyls of 1,1-dimethylcyclohexane); a ring atom's own ring neighbours are not a pair;
 // - allene terminal pair: two identical groups on a terminal C of C=C=C whose far terminal
 //   carries two different groups.
 // The gem pair on `atom`, when it is an sp3 ring atom with two identical exocyclic groups.
+// `in_ring` is ring_bonds(molecule).
 std::optional<std::size_t> ring_gem_pair(const Molecule& molecule, std::size_t atom,
-                                         const std::vector<int>& labels) {
+                                         const std::vector<int>& labels,
+                                         const std::vector<bool>& in_ring) {
     bool ring_atom = false;
     std::vector<std::size_t> exocyclic;
     for (const auto b : molecule.bonds_of(atom)) {
         const auto other = molecule.neighbor(b, atom);
-        if (bond_in_ring(molecule, b)) {
+        if (in_ring[b]) {
             ring_atom = true;
         } else if (molecule.atoms()[other].element != Element::H) {
             exocyclic.push_back(other);
@@ -671,7 +908,8 @@ void allene_terminal_pairs(const Molecule& molecule, std::size_t terminal,
     }
 }
 
-std::vector<Pick> gem_and_allene_splits(const Molecule& molecule, const std::vector<int>& labels) {
+std::vector<Pick> gem_and_allene_splits(const Molecule& molecule, const std::vector<int>& labels,
+                                        const std::vector<bool>& in_ring) {
     std::vector<Pick> picks;
     const auto& atoms = molecule.atoms();
     for (std::size_t atom = 0; atom < atoms.size(); ++atom) {
@@ -679,7 +917,7 @@ std::vector<Pick> gem_and_allene_splits(const Molecule& molecule, const std::vec
             continue;
         }
         if (has_only_single_bonds(molecule, atom)) {
-            if (const auto pair = ring_gem_pair(molecule, atom, labels)) {
+            if (const auto pair = ring_gem_pair(molecule, atom, labels, in_ring)) {
                 picks.push_back(Pick{.atom = *pair});
             }
         } else if (atoms[atom].element == Element::C && molecule.hydrogen_count(atom) == 0) {
@@ -691,11 +929,17 @@ std::vector<Pick> gem_and_allene_splits(const Molecule& molecule, const std::vec
 
 // Whether all substituent groups of `atom` (heavy neighbours by label, plus each H) differ.
 bool all_groups_differ(const Molecule& molecule, std::size_t atom, const std::vector<int>& labels) {
-    const auto heavy = heavy_neighbors(molecule, atom);
-    std::set<int> seen;
-    for (const auto n : heavy) {
-        if (!seen.insert(labels[n]).second) {
-            return false;
+    const auto bonds = molecule.bonds_of(atom);
+    for (std::size_t i = 0; i < bonds.size(); ++i) {
+        const auto a = molecule.neighbor(bonds[i], atom);
+        if (!is_heavy(molecule, a)) {
+            continue;
+        }
+        for (std::size_t j = i + 1; j < bonds.size(); ++j) {
+            const auto b = molecule.neighbor(bonds[j], atom);
+            if (is_heavy(molecule, b) && labels[a] == labels[b]) {
+                return false;
+            }
         }
     }
     return molecule.hydrogen_count(atom) <= 1;
@@ -727,8 +971,8 @@ bool is_chiral_allene_centre(const Molecule& molecule, std::size_t centre,
 bool is_stereocentre(const Molecule& molecule, std::size_t atom, const std::vector<int>& labels,
                      const std::vector<int>& topological) {
     const auto element = molecule.atoms()[atom].element;
-    const auto groups = heavy_neighbors(molecule, atom).size() +
-                        static_cast<std::size_t>(molecule.hydrogen_count(atom));
+    const auto groups =
+        heavy_degree(molecule, atom) + static_cast<std::size_t>(molecule.hydrogen_count(atom));
     if (element == Element::C && is_chiral_allene_centre(molecule, atom, topological)) {
         return true;
     }
@@ -774,12 +1018,12 @@ bool can_be_prochiral(const Molecule& molecule, std::size_t atom, std::size_t gr
 // two identical groups and the others all different, at most one H.
 std::optional<std::size_t> prochiral_pair(const Molecule& molecule, std::size_t atom,
                                           const std::vector<int>& labels) {
-    const auto heavy = heavy_neighbors(molecule, atom);
     const int hydrogens = molecule.hydrogen_count(atom);
-    const auto groups = heavy.size() + static_cast<std::size_t>(hydrogens);
+    const auto groups = heavy_degree(molecule, atom) + static_cast<std::size_t>(hydrogens);
     if (!can_be_prochiral(molecule, atom, groups) || hydrogens > 1) {
         return std::nullopt;
     }
+    const auto heavy = heavy_neighbors(molecule, atom);
     std::map<int, std::vector<std::size_t>> by_label;
     for (const auto h : heavy) {
         by_label[labels[h]].push_back(h);
@@ -823,7 +1067,7 @@ std::vector<Pick> stereo_splits(const Molecule& molecule, const std::vector<int>
 // pick nothing new. Picked atoms of one class share a label, so symmetric copies (both
 // "cis" methyls of a symmetric molecule) stay equivalent to each other.
 template <typename Rules>
-std::vector<int> split_until_stable(const Molecule& molecule, const Aromaticity& aromaticity,
+std::vector<int> split_until_stable(const Molecule& molecule, const Neighbourhood& neighbourhood,
                                     std::vector<int> labels, Rules rules) {
     for (std::size_t round = 0; round <= molecule.atoms().size(); ++round) {
         const auto picks = rules(labels);
@@ -842,7 +1086,7 @@ std::vector<int> split_until_stable(const Molecule& molecule, const Aromaticity&
             next += inserted ? 1 : 0;
             labels[pick.atom] = it->second;
         }
-        labels = refine(molecule, aromaticity, std::move(labels));
+        labels = refine(neighbourhood, std::move(labels));
         if (distinct(labels) == before) {
             break;
         }
@@ -962,7 +1206,7 @@ bool has_nonaromatic_double_bond(const Molecule& molecule, const Aromaticity& ar
                                  std::size_t atom, Element partner) {
     const auto bonds = molecule.bonds_of(atom);
     return std::any_of(bonds.begin(), bonds.end(), [&](std::size_t bond) {
-        return order_of(molecule, bond) == BondOrder::Double && !aromaticity.bonds.contains(bond) &&
+        return order_of(molecule, bond) == BondOrder::Double && !aromaticity.bonds[bond] &&
                is_element(molecule, molecule.neighbor(bond, atom), partner);
     });
 }
@@ -1116,7 +1360,10 @@ bool is_pyridone_ring(const Molecule& molecule, const Ring& ring) {
 // carbons (the hydroxypyridine tautomer; key atom: the C-OH carbon).
 Occurrences find_pyridones(const Molecule& molecule, const Aromaticity& aromaticity) {
     Occurrences found;
-    for (const auto& ring : RingFinder{molecule, 6}.find()) {
+    const auto in_ring = ring_bonds(molecule);
+    const auto allowed = ring_elements(molecule);
+    const auto rings = RingFinder{molecule, 6, in_ring, allowed}.find();
+    for (const auto& ring : rings) {
         if (is_pyridone_ring(molecule, ring)) {
             const auto carbonyl = std::find_if(ring.begin(), ring.end(), [&](std::size_t a) {
                 return is_carbonyl_carbon(molecule, a);
@@ -1191,7 +1438,7 @@ std::vector<std::pair<std::size_t, std::size_t>> find_bonds(const Molecule& mole
     std::vector<std::pair<std::size_t, std::size_t>> found;
     for (std::size_t i = 0; i < molecule.bonds().size(); ++i) {
         const auto& bond = molecule.bonds()[i];
-        if (bond.order != order || aromaticity.bonds.contains(i)) {
+        if (bond.order != order || aromaticity.bonds[i]) {
             continue;
         }
         const auto ea = molecule.atoms()[bond.first].element;
@@ -1376,12 +1623,17 @@ std::vector<std::vector<std::size_t>> aromatic_rings(const Molecule& molecule) {
 
 std::vector<std::size_t> symmetry_classes(const Molecule& molecule) {
     const auto aromaticity = perceive_aromaticity(molecule);
-    return first_appearance(refine(molecule, aromaticity, initial_labels(molecule)));
+    const auto delocalized = delocalized_bonds(molecule);
+    return first_appearance(refine(neighbourhood(molecule, aromaticity, delocalized),
+                                   initial_labels(molecule, delocalized)));
 }
 
 NmrEquivalence nmr_equivalence(const Molecule& molecule) {
     const auto aromaticity = perceive_aromaticity(molecule);
-    const auto topological = refine(molecule, aromaticity, initial_labels(molecule));
+    const auto delocalized = delocalized_bonds(molecule);
+    const auto links = neighbourhood(molecule, aromaticity, delocalized);
+    const auto& in_ring = aromaticity.ring_bonds;
+    const auto topological = refine(links, initial_labels(molecule, delocalized));
     const auto hard = [&](const std::vector<int>& labels) {
         auto picks = ez_splits(molecule, aromaticity, labels, Strength::Always);
         auto rotation = rotation_splits(molecule, labels, Barrier::Slow);
@@ -1396,12 +1648,12 @@ NmrEquivalence nmr_equivalence(const Molecule& molecule) {
         picks.insert(picks.end(), weak_ez.begin(), weak_ez.end());
         auto stereo = stereo_splits(molecule, labels, topological);
         picks.insert(picks.end(), stereo.begin(), stereo.end());
-        auto gem = gem_and_allene_splits(molecule, labels);
+        auto gem = gem_and_allene_splits(molecule, labels, in_ring);
         picks.insert(picks.end(), gem.begin(), gem.end());
         return picks;
     };
-    const auto fewest = split_until_stable(molecule, aromaticity, topological, hard);
-    const auto most = split_until_stable(molecule, aromaticity, fewest, all);
+    const auto fewest = split_until_stable(molecule, links, topological, hard);
+    const auto most = split_until_stable(molecule, links, fewest, all);
     return NmrEquivalence{.fewest = first_appearance(fewest), .most = first_appearance(most)};
 }
 

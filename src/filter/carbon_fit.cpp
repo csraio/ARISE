@@ -187,18 +187,18 @@ int tier_rank(Tier tier) noexcept {
     return 3;
 }
 
-}  // namespace
+core::Error no_peaks() {
+    return {
+        .code = core::ErrorCode::InvalidArgument,
+        .message = "check_carbon_fit: the 13C list has no peaks",
+    };
+}
 
-core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
-                                         std::span<const nmr1d::CarbonAssignment> peaks,
-                                         SuggestOptions options) {
-    if (peaks.empty()) {
-        return core::Error{
-            .code = core::ErrorCode::InvalidArgument,
-            .message = "check_carbon_fit: the 13C list has no peaks",
-        };
-    }
-    const auto equivalence = chem::nmr_equivalence(molecule);
+// check_carbon_fit on a non-empty peak list, given the candidate's equivalence classes
+// (computed once by the caller, so the confirmed-count overload does not repeat them).
+CarbonFit fit_carbons(const chem::Molecule& molecule,
+                      std::span<const nmr1d::CarbonAssignment> peaks,
+                      const chem::NmrEquivalence& equivalence, SuggestOptions options) {
     const auto environments = environment_types(molecule, equivalence.most);
     CarbonFit fit;
     fit.environments_fewest = chem::carbon_environments(molecule, equivalence.fewest);
@@ -232,6 +232,17 @@ core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
     return fit;
 }
 
+}  // namespace
+
+core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
+                                         std::span<const nmr1d::CarbonAssignment> peaks,
+                                         SuggestOptions options) {
+    if (peaks.empty()) {
+        return no_peaks();
+    }
+    return fit_carbons(molecule, peaks, chem::nmr_equivalence(molecule), options);
+}
+
 core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
                                          std::span<const nmr1d::CarbonAssignment> peaks,
                                          const ConfirmedCarbonCounts& confirmed,
@@ -242,12 +253,12 @@ core::Result<CarbonFit> check_carbon_fit(const chem::Molecule& molecule,
             .message = "check_carbon_fit: a confirmed carbon count is negative",
         };
     }
-    auto result = check_carbon_fit(molecule, peaks, options);
-    if (!result) {
-        return result;
+    if (peaks.empty()) {
+        return no_peaks();
     }
-    auto fit = std::move(result).value();
-    const auto classes = chem::nmr_equivalence(molecule).most;
+    const auto equivalence = chem::nmr_equivalence(molecule);
+    auto fit = fit_carbons(molecule, peaks, equivalence, options);
+    const auto& classes = equivalence.most;
 
     // Hybridization kinds: 0 sp, 1 sp2, 2 sp3.
     const auto hybridizations = environment_kinds(
