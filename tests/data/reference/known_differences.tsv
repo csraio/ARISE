@@ -120,7 +120,7 @@ rdkit	CCC1=C(C=CC(=C1)C)OC=O	fr_ester	formate: RDKit fr_ester needs carbon on th
 rdkit	CC=CC=C(C=CC=C)OC=O	fr_ester	formate: RDKit fr_ester needs carbon on the acyl side; formates are esters (user decision)
 rdkit	CCC1=C(C=CC=C1OC=O)C	fr_ester	formate: RDKit fr_ester needs carbon on the acyl side; formates are esters (user decision)
 rdkit	C1=CC=CC(C=C1)CCOC=O	fr_ester	formate: RDKit fr_ester needs carbon on the acyl side; formates are esters (user decision)
-pubchem	InChI=1S/C4H5N/c1-2-4-5-3-1/h1-5H	n1cccc1	ring-pattern: RDKit has no pyrrole fragment; this pattern (written like fr_furan o1cccc1) is PubChem CID 8027 (1H-pyrrole), InChIKey KAESVJOAVNADME-UHFFFAOYSA-N
+pubchem	InChI=1S/C4H5N/c1-2-4-5-3-1/h1-5H	pyrrole_ring	ring-pattern: RDKit has no pyrrole fragment; the builder's pattern pyrrole_ring (written like fr_furan) is PubChem CID 8027 (1H-pyrrole), InChIKey KAESVJOAVNADME-UHFFFAOYSA-N
 spec	C(CC[O-])C[O-]	accept	charged: ARISE rejects charged species as candidates (molecule.hpp StructureIssue)
 spec	C[O-]	accept	charged: ARISE rejects charged species as candidates (molecule.hpp StructureIssue)
 spec	[CH2++]	accept	charged: ARISE rejects charged species as candidates (molecule.hpp StructureIssue)
@@ -131,6 +131,15 @@ spec	C[Na]	accept	unsupported-element: outside ARISE's elements (molecule.hpp)
 spec	C$C	accept	unsupported-notation: quadruple bonds are not read (molecule.hpp)
 spec	CC:C	accept	unsupported-notation: aromatic ':' bonds are not read; ARISE reads Kekule SMILES (molecule.hpp)
 spec	c1ccccc1	accept	unsupported-notation: lowercase aromatic atoms are a ParseError; ARISE reads Kekule SMILES (molecule.hpp)
+spec	CCc1ccccc1	accept	unsupported-notation: lowercase aromatic atoms are a ParseError; ARISE reads Kekule SMILES (molecule.hpp)
+spec	Cc1ccccc1C	accept	unsupported-notation: lowercase aromatic atoms are a ParseError; ARISE reads Kekule SMILES (molecule.hpp)
+spec	Cc1cccc(C)c1	accept	unsupported-notation: lowercase aromatic atoms are a ParseError; ARISE reads Kekule SMILES (molecule.hpp)
+spec	c1ccc2ccccc2c1	accept	unsupported-notation: lowercase aromatic atoms are a ParseError; ARISE reads Kekule SMILES (molecule.hpp)
+spec	CC(=O)[O-].[Na+]	accept	mixture: ARISE reads one molecule; '.' is a ParseError (molecule.hpp)
+spec	CC(C)O.[C-]#[O+]	accept	mixture: ARISE reads one molecule; '.' is a ParseError (molecule.hpp)
+spec	[NH4+].[Cl-]	accept	mixture: ARISE reads one molecule; '.' is a ParseError (molecule.hpp)
+spec	*C	accept	unsupported-notation: the '*' wildcard atom is a ParseError; candidate lists may hold it as text only (io/candidates.hpp)
+spec	C[NH3+]	accept	charged: ARISE rejects charged species as candidates (molecule.hpp StructureIssue)
 spec	C[C@TH1H](O)C	accept	unsupported-notation: only @ and @@ stereo marks are read (molecule.hpp)
 spec	[CH4:1]	accept	unsupported-notation: atom maps are not read (molecule.hpp)
 spec	C=1CCCCC#1	accept	conflicting-ring-bond: the two ends of a ring closure give different bond orders, an error in OpenSMILES; RDKit takes one of them
@@ -230,5 +239,4 @@ valence	[SiH3-](CC[N+](C)(C)C)(C)	accept	hypervalent-charged: RDKit's valence li
 valence	[SiH4-](CC[N+](C)(C)C)	accept	hypervalent-charged: RDKit's valence lists for charged Cl, Br, I, P and Si (3-6 bonds on Cl+/Br+, ate complexes of I-, P-, Si-, P+ with 6 bonds) differ from ARISE's charge-shifted normal valences
 spec	C(C[NH3+])C[O-]	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
 spec	CCC(=[O+][O-])C	fr_ketone	carbonyl-oxide: C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O
-spec	C[N+](C)(CC)CC([O-])C	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
 bmrb	bmse000091:1	exchangeable	bmrb-assignment: BMRB assigns 1H peaks that have HSQC cross peaks (4.27, 4.40, 5.87 and 7.85 ppm) to H on O or N: the entry's assignment contradicts its own HSQC list

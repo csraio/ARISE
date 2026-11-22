@@ -164,7 +164,7 @@ std::vector<OracleEntry> oracle(std::string_view text) {
             continue;
         }
         const auto fields = split(line, '\t');
-        if (fields.size() != 7) {
+        if (fields.size() != 8) {  // the last, RDKit's carbon hybridizations, is read elsewhere
             ADD_FAILURE() << "malformed oracle line: " << line;
             continue;
         }
@@ -468,7 +468,7 @@ const std::vector<ChebiCheck>& chebi_checks() {
             .rdkit_ring = "fr_pyridine",
         },
         {.chebi = 24129, .groups = {Group::FuranRing}, .rdkit_ring = "fr_furan"},
-        {.chebi = 26455, .groups = {Group::PyrroleRing}, .rdkit_ring = "n1cccc1"},
+        {.chebi = 26455, .groups = {Group::PyrroleRing}, .rdkit_ring = "pyrrole_ring"},
         {.chebi = 26961, .groups = {Group::ThiopheneRing}, .rdkit_ring = "fr_thiophene"},
     };
     return checks;
@@ -627,7 +627,7 @@ TEST(Reference, RingPatternsWithoutAnRdkitFragmentArePubChemCompounds) {
     // the PubChem compound it encodes: its InChI and InChIKey, as PubChem gives them
     // (scripts/build_reference_sets.py re-checks both against PubChem and RDKit).
     const auto patterns = unpublished_ring_patterns();
-    EXPECT_EQ(patterns, (std::set<std::string_view>{"n1cccc1"}));
+    EXPECT_EQ(patterns, (std::set<std::string_view>{"pyrrole_ring"}));
     std::multiset<std::string_view> backed;
     for (const auto line : data_lines(known_differences_text())) {
         const auto fields = split(line, '\t');
@@ -1080,56 +1080,167 @@ std::string spec_line_problem(std::string_view line, const std::vector<std::stri
     return std::string{entry.smiles} + ": differs in " + problem;
 }
 
-// The SMILES literals passed to the spec helpers in the hand-written chem and filter tests
-// (the same helpers as SPEC_HELPERS in the builder).
-std::set<std::string> spec_literals() {
-    static constexpr std::array kHelpers{
-        "parse_smiles(\"",       "parse_ok(\"",    "parse(\"",
-        "expect_error(\"",       "groups(\"",      "environments(\"",
-        "carbon_class_sizes(\"", "topological(\"", "verdict(\"",
-        "exchangeable(\"",
-    };
-    const auto sources = arise::test::join_chunks(arise::test::kSpecSourcesChunks);
-    std::set<std::string> literals;
-    for (const std::string_view helper : kHelpers) {
-        for (auto at = sources.find(helper); at != std::string::npos;
-             at = sources.find(helper, at + 1)) {
-            const bool word_start =
-                at == 0 || (std::isalnum(static_cast<unsigned char>(sources[at - 1])) == 0 &&
-                            sources[at - 1] != '_');
-            const auto begin = at + helper.size();
-            if (word_start) {
-                std::string literal;  // C++ escapes: "\\" is one backslash in the SMILES
-                for (auto i = begin; i < sources.size() && sources[i] != '"'; ++i) {
-                    if (sources[i] == '\\') {
-                        ++i;
-                    }
-                    literal += sources[i];
-                }
-                literals.insert(literal);
-            }
+// The character a C++ escape "\c" stands for (only the escapes the tests use matter).
+char unescaped(char c) {
+    switch (c) {
+        case 'n':
+            return '\n';
+        case 't':
+            return '\t';
+        case 'r':
+            return '\r';
+        default:
+            return c;
+    }
+}
+
+// The string literal opening at source[open] (a '"'), escapes resolved, and the index of
+// its closing '"'.
+std::pair<std::string, std::size_t> read_literal(std::string_view source, std::size_t open) {
+    std::string literal;
+    std::size_t i = open + 1;
+    for (; i < source.size() && source[i] != '"'; ++i) {
+        if (source[i] == '\\' && i + 1 < source.size()) {
+            ++i;
+            literal += unescaped(source[i]);
+        } else {
+            literal += source[i];
+        }
+    }
+    return {std::move(literal), i};
+}
+
+// The string literals of one test source (char literals and line comments skipped).
+std::vector<std::string> string_literals(std::string_view source) {
+    std::vector<std::string> literals;
+    for (std::size_t i = 0; i < source.size(); ++i) {
+        if (source.substr(i, 2) == "//") {
+            i = std::min(source.find('\n', i), source.size());
+        } else if (source[i] == '\'') {
+            i += source.substr(i + 1, 1) == "\\" ? 3 : 2;  // 'x' or '\x'
+        } else if (source[i] == '"') {
+            auto [literal, close] = read_literal(source, i);
+            literals.push_back(std::move(literal));
+            i = close;
         }
     }
     return literals;
 }
 
-TEST(Provenance, SpecOracleCoversEverySmilesInTheHandWrittenTests) {
-    // A new hand-written case must be re-checked by RDKit: rerun the builder.
-    std::set<std::string> covered;
-    for (const auto line : data_lines(spec_oracle_text())) {
-        covered.insert(std::string{split(line, '\t').front()});
+// Whether `word` is written in SMILES: every character is an organic-subset atom (B C N O
+// P S F Cl Br I, aromatic b c n o p s), a bracket atom, a digit or a SMILES bond, branch,
+// ring or charge symbol, and it uses at least one of = # $ : / \ ( ) [ %.
+bool smiles_shaped(std::string_view word) {
+    if (word.starts_with('(')) {
+        return false;  // prose in parentheses, e.g. "(sp3)"
     }
-    for (const auto& literal : spec_literals()) {
-        EXPECT_TRUE(covered.contains(literal))
-            << literal << " is not in spec_rdkit_oracle.tsv; run scripts/build_reference_sets.py";
+    constexpr std::string_view kSymbols = "=#$:/\\()%.+-";
+    bool atom = false;
+    bool punctuation = false;
+    for (std::size_t i = 0; i < word.size(); ++i) {
+        const char c = word[i];
+        if (c == '[') {
+            const auto close = word.find(']', i);
+            if (close == std::string_view::npos) {
+                return false;
+            }
+            atom = true;
+            punctuation = true;
+            i = close;
+        } else if ((c == 'C' && i + 1 < word.size() && word[i + 1] == 'l') ||
+                   (c == 'B' && i + 1 < word.size() && word[i + 1] == 'r')) {
+            atom = true;
+            ++i;
+        } else if (std::string_view{"BCNOPSFIbcnops"}.find(c) != std::string_view::npos) {
+            atom = true;
+        } else if (std::isdigit(static_cast<unsigned char>(c)) != 0) {
+            continue;
+        } else if (kSymbols.find(c) != std::string_view::npos) {
+            punctuation = punctuation || std::string_view{"+-."}.find(c) == std::string_view::npos;
+        } else {
+            return false;
+        }
     }
-    EXPECT_GT(spec_literals().size(), 150U);
+    return atom && punctuation;
+}
+
+// The words of `text` (split at white space, commas and quotes) that look like a SMILES:
+// SMILES-shaped, or read by ARISE as a molecule of two or more atoms.
+std::vector<std::string> smiles_like_words(std::string_view text) {
+    std::vector<std::string> found;
+    std::size_t start = 0;
+    while (start < text.size()) {
+        const auto end = std::min(text.find_first_of(" \t\r\n,\"", start), text.size());
+        const auto word = text.substr(start, end - start);
+        start = end + 1;
+        if (word.empty()) {
+            continue;
+        }
+        const auto parsed = arise::chem::parse_smiles(word);
+        if (smiles_shaped(word) || (parsed && parsed.value().atoms().size() >= 2)) {
+            found.emplace_back(word);
+        }
+    }
+    return found;
+}
+
+TEST(Provenance, NoTestContainsASmilesLiteral) {
+    // The chemist's rule (2026-11-21): every molecule a test uses comes by name from
+    // tests/fixtures/test_molecules.hpp (PubChem by CID, a named rule, or the RDKit-checked
+    // syntax table), so no SMILES typed by hand can creep into a test.
+    // Words that only look like SMILES, with the file allowed to use them and the reason
+    // (this file may name them too, here).
+    const std::set<std::pair<std::string, std::string>> allowed{
+        // The formula reader's hint for "Co2": the message names CO, a formula.
+        {"core/formula_test.cpp", "CO"},
+        // "H on O/N/S": a message naming the elements O, N or S.
+        {"hsqc/bmrb_test.cpp", "O/N/S"},
+        // ARISE's hallmark name "C=O carbon" (chem::hallmarks), in a lab window table.
+        {"io/window_csv_test.cpp", "C=O"},
+        // ARISE's hallmark names: "C=O carbon", "C#N carbon", "O-C carbon (sp3)", ...
+        {"filter/groups_test.cpp", "C=O"},
+        {"filter/groups_test.cpp", "C#N"},
+        {"filter/groups_test.cpp", "O-C"},
+    };
+    const auto is_allowed = [&allowed](const std::string& path, const std::string& word) {
+        return std::any_of(allowed.begin(), allowed.end(), [&](const auto& entry) {
+            return entry.second == word &&
+                   (entry.first == path || path == "chem/reference_test.cpp");
+        });
+    };
+    const auto sources = arise::test::join_chunks(arise::test::kSpecSourcesChunks);
+    std::size_t files = 0;
+    bool saw_reader_tests = false;
+    std::string_view rest = sources;
+    while (!rest.empty()) {
+        const auto start = rest.find("\n## ");
+        if (start == std::string_view::npos) {
+            break;
+        }
+        const auto eol = rest.find('\n', start + 1);
+        const std::string path{rest.substr(start + 4, eol - start - 4)};
+        rest = rest.substr(eol + 1);
+        const auto next = rest.find("\n## ");
+        const auto body = rest.substr(0, next);
+        ++files;
+        saw_reader_tests = saw_reader_tests || path == "chem/molecule_test.cpp";
+        for (const auto& literal : string_literals(body)) {
+            for (const auto& word : smiles_like_words(literal)) {
+                if (!is_allowed(path, word)) {
+                    ADD_FAILURE() << path << " contains the SMILES-like word \"" << word
+                                  << "\"; read the molecule by name (test_molecules.hpp)";
+                }
+            }
+        }
+    }
+    EXPECT_GT(files, 25U);
+    EXPECT_TRUE(saw_reader_tests) << "the embedded test sources lack chem/molecule_test.cpp";
 }
 
 TEST(Provenance, HandWrittenSpecMoleculesMatchRdkit) {
-    // Every SMILES literal in the hand-written chem tests (found by pattern by the builder):
-    // the tests assert ARISE's output, so ARISE agreeing with RDKit checks the hand-typed
-    // expectations for hydrogens, symmetry and the mapped fragments.
+    // Every SMILES the hand-written tests read by name (test_compounds.tsv, rule_compounds.tsv,
+    // smiles_syntax_cases.tsv): the tests assert ARISE's output, so ARISE agreeing with RDKit
+    // checks the hand-written expectations for hydrogens, symmetry and the mapped fragments.
     const auto names = header_names(spec_oracle_text(), "# fragments: ");
     ASSERT_FALSE(names.empty()) << "spec oracle has no '# fragments:' line";
     KnownDifferences known{"spec"};

@@ -3,6 +3,7 @@
 #include "arise/core/error.hpp"
 #include "arise/core/formula.hpp"
 #include "pubchem_fixture.hpp"
+#include "test_molecules.hpp"
 
 #include <gtest/gtest.h>
 
@@ -10,6 +11,7 @@
 #include <set>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace {
@@ -19,6 +21,9 @@ using arise::core::Formula;
 using arise::io::import_pubchem_csv;
 using arise::io::PubChemImport;
 using arise::io::RemovalReason;
+using arise::test::compound_cid;
+using arise::test::compound_smiles;
+using arise::test::syntax_case;
 
 PubChemImport import_ok(std::string_view text) {
     auto result = import_pubchem_csv(text);
@@ -37,6 +42,11 @@ void expect_error(std::string_view text, const std::vector<std::string>& fragmen
 }
 
 constexpr std::string_view kHeader = "\"CID\",\"ConnectivitySMILES\"\n";
+
+// One CSV row as PubChem writes it: CID, then the quoted SMILES.
+std::string row(long long cid, std::string_view smiles, std::string_view end = "\n") {
+    return std::to_string(cid) + ",\"" + std::string{smiles} + "\"" + std::string{end};
+}
 
 // ---- The search address --------------------------------------------------------
 
@@ -65,11 +75,13 @@ TEST(PubChem, RecordedC4H8O2ResponseIsCleanedAsExpected) {
 
 TEST(PubChem, RecordedResponseKeepsTheLowestCidOfEachStructure) {
     const auto imported = import_ok(arise::test::kPubChemC4H8O2);
-    const auto ethyl_acetate = std::find_if(
-        imported.candidates.begin(), imported.candidates.end(),
-        [](const arise::io::Candidate& candidate) { return candidate.smiles == "CCOC(=O)C"; });
+    const auto ethyl_acetate =
+        std::find_if(imported.candidates.begin(), imported.candidates.end(),
+                     [](const arise::io::Candidate& candidate) {
+                         return candidate.smiles == compound_smiles("Ethyl Acetate");
+                     });
     ASSERT_NE(ethyl_acetate, imported.candidates.end());
-    EXPECT_EQ(ethyl_acetate->name, "CID 8857");
+    EXPECT_EQ(ethyl_acetate->name, "CID " + std::to_string(compound_cid("Ethyl Acetate")));
 }
 
 TEST(PubChem, RecordedResponseCandidatesAreDistinctAndClean) {
@@ -84,35 +96,42 @@ TEST(PubChem, RecordedResponseCandidatesAreDistinctAndClean) {
 // ---- Cleaning rules on small hand-made inputs -------------------------------------
 
 TEST(PubChem, KeepsCandidatesInCidOrderWithNamesAndLines) {
+    // Listed in descending CID order; kept in ascending order.
+    const std::pair ester{compound_cid("Ethyl Acetate"), compound_smiles("Ethyl Acetate")};
+    const std::pair acid{compound_cid("Butyric Acid"), compound_smiles("Butyric Acid")};
+    const auto& [low, high] = std::minmax(ester, acid);
     const auto imported =
-        import_ok(std::string{kHeader} + "8857,\"CCOC(=O)C\"\n264,\"CCCC(=O)O\"\n");
+        import_ok(std::string{kHeader} + row(high.first, high.second) + row(low.first, low.second));
     ASSERT_EQ(imported.candidates.size(), 2U);
-    EXPECT_EQ(imported.candidates[0].smiles, "CCCC(=O)O");
-    EXPECT_EQ(imported.candidates[0].name, "CID 264");
+    EXPECT_EQ(imported.candidates[0].smiles, low.second);
+    EXPECT_EQ(imported.candidates[0].name, "CID " + std::to_string(low.first));
     EXPECT_EQ(imported.candidates[0].line, 3U);
-    EXPECT_EQ(imported.candidates[1].name, "CID 8857");
+    EXPECT_EQ(imported.candidates[1].name, "CID " + std::to_string(high.first));
     EXPECT_EQ(imported.candidates[1].line, 2U);
 }
 
 TEST(PubChem, DuplicateKeepsTheLowestCidWhateverTheRowOrder) {
-    const auto imported = import_ok(std::string{kHeader} + "500,\"CCO\"\n7,\"CCO\"\n90,\"CCO\"\n");
+    const auto ethanol = compound_smiles("Ethanol");
+    const auto imported =
+        import_ok(std::string{kHeader} + row(500, ethanol) + row(7, ethanol) + row(90, ethanol));
     ASSERT_EQ(imported.candidates.size(), 1U);
     EXPECT_EQ(imported.candidates[0].name, "CID 7");
     const std::vector<arise::io::Removal> expected{
-        {.cid = 90, .smiles = "CCO", .reason = RemovalReason::DuplicateConnectivity},
-        {.cid = 500, .smiles = "CCO", .reason = RemovalReason::DuplicateConnectivity},
+        {.cid = 90, .smiles = ethanol, .reason = RemovalReason::DuplicateConnectivity},
+        {.cid = 500, .smiles = ethanol, .reason = RemovalReason::DuplicateConnectivity},
     };
     EXPECT_EQ(imported.removed, expected);
 }
 
 TEST(PubChem, RemovesMixturesAndIons) {
-    const auto imported = import_ok(std::string{kHeader} +
-                                    "1,\"CC(C)O.[C-]#[O+]\"\n"  // mixture, also charged
-                                    "2,\"C(CC[O-])C[O-]\"\n"    // net charge -2
-                                    "3,\"C[NH3+]\"\n"           // net charge +1
-                                    "4,\"CCO\"\n");
+    const auto imported =
+        import_ok(std::string{kHeader} +
+                  row(1, syntax_case("mixture with a charged component")) +  // also charged
+                  row(2, compound_smiles("Butane-1,4-diolate")) +            // net charge -2
+                  row(3, compound_smiles("Methylammonium")) +                // net charge +1
+                  row(4, compound_smiles("Ethanol")));
     ASSERT_EQ(imported.candidates.size(), 1U);
-    EXPECT_EQ(imported.candidates[0].smiles, "CCO");
+    EXPECT_EQ(imported.candidates[0].smiles, compound_smiles("Ethanol"));
     EXPECT_EQ(imported.removed_count(RemovalReason::Mixture), 1U);  // mixture wins
     EXPECT_EQ(imported.removed_count(RemovalReason::Charged), 2U);
 }
@@ -120,30 +139,32 @@ TEST(PubChem, RemovesMixturesAndIons) {
 TEST(PubChem, KeepsChargeSeparatedNeutralMolecules) {
     // PubChem writes nitro groups, N-oxides, zwitterions and isocyanides with formal
     // charges that sum to zero; they are real neutral compounds (user decision 2026-11-01).
-    const auto imported = import_ok(std::string{kHeader} +
-                                    "1,\"CC[N+](=O)[O-]\"\n"
-                                    "2,\"C1=CC=[N+](C=C1)[O-]\"\n"
-                                    "3,\"C(C(=O)[O-])[NH3+]\"\n"
-                                    "4,\"[C-]#[N+]C\"\n");
+    const auto imported = import_ok(std::string{kHeader} + row(1, compound_smiles("Nitroethane")) +
+                                    row(2, compound_smiles("Pyridine N-Oxide")) +
+                                    row(3, compound_smiles("alpha-Glycine")) +
+                                    row(4, compound_smiles("Methyl isocyanide")));
     EXPECT_EQ(imported.candidates.size(), 4U);
     EXPECT_TRUE(imported.removed.empty());
 }
 
 TEST(PubChem, ChargesAreSummedInEveryNotation) {
     // '++' and '+2' are both +2; one -1 per '-'.
-    const auto imported = import_ok(std::string{kHeader} +
-                                    "1,\"[CH2++]C([O-])[O-]\"\n"     // 0: kept
-                                    "2,\"[CH2+2]C([O-])[O-]\"\n"     // 0: kept
-                                    "3,\"[CH2+2]CC[O-]\"\n"          // +1: ion
-                                    "4,\"[O--]C[CH2+]\"\n"           // -1: ion
-                                    "5,\"[O-2]C[CH2+][CH2+]C\"\n");  // 0: kept
+    const auto imported =
+        import_ok(std::string{kHeader} +
+                  row(1, syntax_case("CH2 dication and two oxide anions, written ++")) +  // kept
+                  row(2, syntax_case("CH2 dication and two oxide anions, written +2")) +  // kept
+                  row(3, syntax_case("CH2 dication and one oxide anion")) +               // ion
+                  row(4, syntax_case("oxide dianion written --")) +                       // ion
+                  row(5, syntax_case("oxide dianion written -2, two cations")));          // kept
     EXPECT_EQ(imported.candidates.size(), 3U);
     EXPECT_EQ(imported.removed_count(RemovalReason::Charged), 2U);
 }
 
 TEST(PubChem, ExplicitSingleBondIsNotACharge) {
     // '-' outside brackets is a bond, not a charge.
-    const auto imported = import_ok(std::string{kHeader} + "1,\"CC-O\"\n2,\"[13CH4]\"\n");
+    const auto imported =
+        import_ok(std::string{kHeader} + row(1, syntax_case("explicit single bond")) +
+                  row(2, compound_smiles("Carbon-13C")));
     EXPECT_EQ(imported.candidates.size(), 2U);
     EXPECT_TRUE(imported.removed.empty());
 }
@@ -156,7 +177,9 @@ TEST(PubChem, HeaderOnlyIsAnEmptyResult) {
 }
 
 TEST(PubChem, AcceptsCrLfAndAMissingFinalNewline) {
-    const auto imported = import_ok("\"CID\",\"ConnectivitySMILES\"\r\n7,\"CCO\"\r\n8,\"CC\"");
+    const auto imported = import_ok("\"CID\",\"ConnectivitySMILES\"\r\n" +
+                                    row(7, compound_smiles("Ethanol"), "\r\n") +
+                                    row(8, compound_smiles("Ethane"), ""));
     EXPECT_EQ(imported.candidates.size(), 2U);
 }
 
@@ -175,21 +198,26 @@ TEST(PubChem, EmptyTextIsError) {
 TEST(PubChem, WrongHeaderIsError) {
     // e.g. an HTML error page or a different property list.
     expect_error("<html><body>Service unavailable</body></html>\n", {"line 1", "header"});
-    expect_error("\"CID\",\"IsomericSMILES\"\n7,\"CCO\"\n", {"line 1", "header"});
+    expect_error("\"CID\",\"IsomericSMILES\"\n" + row(7, compound_smiles("Ethanol")),
+                 {"line 1", "header"});
 }
 
 TEST(PubChem, BadCidIsError) {
-    expect_error(std::string{kHeader} + "abc,\"CCO\"\n", {"line 2", "CID"});
-    expect_error(std::string{kHeader} + "0,\"CCO\"\n", {"line 2", "CID"});
-    expect_error(std::string{kHeader} + ",\"CCO\"\n", {"line 2", "CID"});
+    const auto field = ",\"" + compound_smiles("Ethanol") + "\"\n";
+    expect_error(std::string{kHeader} + "abc" + field, {"line 2", "CID"});
+    expect_error(std::string{kHeader} + "0" + field, {"line 2", "CID"});
+    expect_error(std::string{kHeader} + field, {"line 2", "CID"});
 }
 
 TEST(PubChem, MalformedSmilesFieldIsError) {
-    expect_error(std::string{kHeader} + "7,CCO\n", {"line 2", "quoted"});
-    expect_error(std::string{kHeader} + "7,\"CCO\n", {"line 2", "quoted"});
+    const auto ethanol = compound_smiles("Ethanol");
+    expect_error(std::string{kHeader} + "7," + ethanol + "\n", {"line 2", "quoted"});
+    expect_error(std::string{kHeader} + "7,\"" + ethanol + "\n", {"line 2", "quoted"});
     expect_error(std::string{kHeader} + "7\n", {"line 2"});
     expect_error(std::string{kHeader} + "7,\"\"\n", {"line 2", "empty"});
-    expect_error(std::string{kHeader} + "7,\"CC;O\"\n", {"line 2", "';'"});
+    // Ethanol's SMILES with a character outside the SMILES alphabet inserted.
+    expect_error(std::string{kHeader} + row(7, std::string{ethanol}.insert(2, ";")),
+                 {"line 2", "';'"});
 }
 
 }  // namespace

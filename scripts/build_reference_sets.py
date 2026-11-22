@@ -39,7 +39,7 @@ import urllib.request
 from pathlib import Path
 
 from rdkit import Chem, RDLogger, rdBase
-from rdkit.Chem import Fragments
+from rdkit.Chem import Fragments, rdMolDescriptors
 
 RDLogger.DisableLog("rdApp.*")
 
@@ -92,10 +92,11 @@ CHEBI_CLASSES = definition_classes()
 # non-aromatic rings (butenolides, dihydropyridines). ARISE's ring groups mean aromatic
 # rings, so each ChEBI row also records RDKit's aromatic ring counts, and a ChEBI ring
 # class is checked only where RDKit sees the ring (user decision 2026-10-31). Pyrroles have
-# no RDKit fragment; "n1cccc1" is written like RDKit's fr_furan "o1cccc1", and
-# known_differences.tsv ties it to the PubChem compound it encodes (verify_ring_patterns).
+# no RDKit fragment; the pattern named "pyrrole_ring" is written like RDKit's fr_furan
+# pattern, and known_differences.tsv ties the name to the PubChem compound it encodes
+# (verify_ring_patterns).
 CHEBI_RINGS = [("fr_benzene", None), ("fr_pyridine", None), ("fr_furan", None),
-               ("fr_thiophene", None), ("n1cccc1", Chem.MolFromSmarts("n1cccc1"))]
+               ("fr_thiophene", None), ("pyrrole_ring", Chem.MolFromSmarts("n1cccc1"))]
 CHEBI_PER_CLASS = 100
 CHEBI_CHARGED_PER_CLASS = 10
 CHEBI_MAX_HEAVY_ATOMS = 40
@@ -114,6 +115,25 @@ def download(url, path):
     with urllib.request.urlopen(url, timeout=900) as response, open(path, "wb") as out:
         while block := response.read(1 << 20):
             out.write(block)
+
+
+def refresh_license(path):
+    """Re-downloads the nmrshiftdb2 licence text to `path`. When the site does not answer,
+    the copy already at `path` is kept with a warning, so a rebuild does not depend on the
+    site being up; with no copy at all, the build stops."""
+    partial = path.with_name(path.name + ".partial")
+    try:
+        download(LICENSE_URL, partial)
+    except OSError as error:  # URLError, timeouts and HTTP errors are all OSErrors
+        if partial.exists():
+            partial.unlink()
+        if not path.exists():
+            sys.exit(f"cannot download the nmrshiftdb2 licence ({error}) and no copy exists "
+                     f"at {path}")
+        print(f"WARNING: cannot download the nmrshiftdb2 licence ({error}); keeping the copy "
+              f"already at {path}", file=sys.stderr)
+        return
+    partial.replace(path)
 
 
 def header(lines, sources):
@@ -646,6 +666,17 @@ def read_smiles(smiles):
     return Chem.MolFromSmiles(smiles, params)
 
 
+# RDKit hybridization of a carbon as written in the oracle: 1 sp, 2 sp2, 3 sp3; 0 for
+# any other atom or any other RDKit hybridization.
+HYBRIDIZATION_CODES = {Chem.HybridizationType.SP: 1, Chem.HybridizationType.SP2: 2,
+                       Chem.HybridizationType.SP3: 3}
+
+
+def carbon_hybridizations(mol):
+    return " ".join(str(HYBRIDIZATION_CODES.get(a.GetHybridization(), 0))
+                    if a.GetSymbol() == "C" else "0" for a in mol.GetAtoms())
+
+
 def oracle_line(smiles):
     mol = read_smiles(smiles)
     if mol is None or any(a.GetNumRadicalElectrons() for a in mol.GetAtoms()):
@@ -661,7 +692,9 @@ def oracle_line(smiles):
     inchi = inchi_classes(mol)
     inchi_text = " ".join(str(c) for c in inchi) if inchi is not None else "-"
     keys = key_atoms(mol, FRAGMENT_PATTERNS)
-    return f"{smiles}\t{hydrogens}\t{classes}\t{fragments}\t{differs}\t{inchi_text}\t{keys}"
+    hybridizations = carbon_hybridizations(mol)
+    return (f"{smiles}\t{hydrogens}\t{classes}\t{fragments}\t{differs}\t{inchi_text}\t{keys}"
+            f"\t{hybridizations}")
 
 
 def build_oracle(formulas):
@@ -730,43 +763,462 @@ PUBCHEM_NAME_URL = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/name/{}/
                     "MolecularFormula,ConnectivitySMILES/JSON")
 
 
+def pubchem_by_name(name):
+    """PubChem's one compound for `name`: (CID, formula, ConnectivitySMILES)."""
+    url = PUBCHEM_NAME_URL.format(urllib.parse.quote(name))
+    with urllib.request.urlopen(url, timeout=60) as response:
+        props = json.load(response)["PropertyTable"]["Properties"]
+    if len(props) != 1:
+        sys.exit(f"PubChem gives {len(props)} compounds for {name!r}")
+    p = props[0]
+    return p["CID"], p["MolecularFormula"], p["ConnectivitySMILES"]
+
+
 def named_compounds():
     lines = []
     for name in NAMED_COMPOUNDS:
-        url = PUBCHEM_NAME_URL.format(urllib.parse.quote(name))
-        with urllib.request.urlopen(url, timeout=60) as response:
-            props = json.load(response)["PropertyTable"]["Properties"]
-        if len(props) != 1:
-            sys.exit(f"PubChem gives {len(props)} compounds for {name!r}")
-        p = props[0]
-        lines.append(f"{name}\t{p['CID']}\t{p['MolecularFormula']}\t{p['ConnectivitySMILES']}")
+        cid, formula, smiles = pubchem_by_name(name)
+        lines.append(f"{name}\t{cid}\t{formula}\t{smiles}")
+    return lines
+
+
+# Molecules of the hand-written tests, which read them by name (the chemist's rule,
+# 2026-11-21: no SMILES typed by hand in any test). Each is (name, PubChem CID, atom order):
+# the structure is PubChem's (ConnectivitySMILES of the CID, or its isomeric SMILES for the
+# CIDs in ISOMERIC_CIDS); the name is PubChem's title (or IUPAC name), with "(atom order n)"
+# where one compound is used with several atom numberings. The atom order, when given,
+# renumbers PubChem's atoms (atom k of the test molecule is PubChem's atom order[k]) so
+# tests written against an earlier numbering keep it; the orders were computed once by
+# RDKit substructure matching, and the builder checks that RDKit writes the renumbered
+# molecule in exactly that order and that it is PubChem's structure (same InChIKey).
+TEST_COMPOUNDS = [
+    ('Borane', 6331, None),
+    ('Bromofluoroiodomethane', 11481826, [2, 0, 1, 3]),
+    ('Methane', 297, None),
+    ('Formic Acid', 284, None),
+    ('alpha-Glycine', 5257127, None),
+    ('Butane-1,4-diolate', 22603739, None),
+    ('3-Azaniumylpropan-1-olate', 58420841, None),
+    ('Toluene', 1140, None),
+    ('P-Xylene', 7809, None),
+    ('Quinone', 4650, None),
+    ('Fluoranthene', 9154, None),
+    ('Toluene (atom order 2)', 1140, None),
+    ('Biphenyl', 7095, None),
+    ('Quinoline', 7047, None),
+    ('Indole', 798, None),
+    ('Benzofuran', 9223, None),
+    ('Naphthalene', 931, None),
+    ('Benzene', 241, None),
+    ('1,3-Cyclohexadiene', 11605, [2, 3, 4, 5, 0, 1]),
+    ('Pyridine', 1049, None),
+    ('Pyridine N-Oxide', 12753, None),
+    ('Cyclohexene', 8079, [3, 4, 5, 0, 1, 2]),
+    ('Pyrrole', 8027, None),
+    ('Furan', 8029, None),
+    ('Thiophene', 8030, None),
+    ('Cyclopentadiene', 7612, None),
+    ('Gamma-Butyrolactone', 7302, None),
+    ('Cyclohexane', 8078, None),
+    ('Pyrrolidine', 31268, None),
+    ('Tetrahydrofuran', 8028, None),
+    ('Tetrahydrothiophene', 1127, None),
+    ('2,3-Dihydrofuran', 70934, None),
+    ('1,4-Dioxane', 31275, None),
+    ('Isobutylene', 8255, [2, 1, 0, 3]),
+    ('Linalool', 6549, [8, 7, 5, 6, 9, 4, 3, 2, 1, 0, 10]),
+    ('Styrene', 7501, None),
+    ('2-Ethenylfuran', 73881, None),
+    ('1,3-Butadiene', 7845, None),
+    ('Vinyl alcohol', 11199, None),
+    ('Propane, 2-(ethenylsulfinyl)-', 5323637, [6, 5, 3, 4, 1, 0, 2]),
+    ('Formaldehyde', 712, None),
+    ('methylborane', 5326078, [1, 0]),
+    ('Acetonitrile', 6342, None),
+    ('Acetone', 180, None),
+    ('3-[(Dimethylamino)methylidene]pentane-2,4-dione', 567003, [0, 1, 2, 3, 4, 5, 6, 7, 8, 10, 9]),
+    ('Acetophenone', 7410, None),
+    ('3-Buten-2-one, 4,4-bis(dimethylamino)-', 550970, None),
+    ('Acetylacetone', 31261, [0, 1, 2, 3, 4, 6, 5]),
+    ('Acetamide', 178, None),
+    ('Dimethylacetamide', 31374, None),
+    ('N-Acetylpyrrole', 521947, None),
+    ('1-(2H-1,2,3-Triazol-2-yl)ethanone', 15939271, None),
+    ('Acetohydrazide', 14039, None),
+    ('Acetic Acid', 176, None),
+    ('Acetic Anhydride', 7918, [0, 1, 2, 3, 4, 6, 5]),
+    ('Iodobenzene diacetate', 76724, [0, 1, 2, 3, 4, 11, 12, 14, 13, 5, 6, 7, 8, 9, 10]),
+    ('propan-2-one O-acetyl oxime', 2795071, [6, 4, 5, 3, 2, 1, 0, 7]),
+    ('Neopentane', 10041, None),
+    ('3-Diazo-2,2,4,4-tetramethylpentane', 638177, None),
+    ('3,3-Dimethyl-2-butanol', 10045, [3, 2, 4, 5, 1, 0, 6]),
+    ('2,3-Dimethyl-2-butene', 11250, [0, 1, 5, 2, 3, 4]),
+    ('2,3-Pentadiene, 2-methyl-', 137807, [4, 3, 5, 2, 1, 0]),
+    ('Schembl4340083', 12820292, [6, 5, 7, 4, 3, 1, 0, 2]),
+    ('2-Propanamine, N-methyl-', 138743, [0, 1, 4, 2, 3]),
+    ('2-Propanone, hydrazone', 78937, [0, 1, 4, 2, 3]),
+    ('Acetone, oxime', 67180, [0, 1, 4, 2, 3]),
+    ('2-Propanone, o-methyloxime', 137909, [0, 1, 5, 2, 3, 4]),
+    ('DL-valine', 1182, [0, 1, 2, 3, 7, 4, 5, 6]),
+    ('4-Methyl-2-Pentanol', 7910, None),
+    ('Isopropanol', 3776, None),
+    ('tert-butyl N-[methyl(propan-2-yl)-lambda4-sulfanylidene]carbamate', 21591014, [0, 1, 2, 3, 12, 4, 5, 6, 7, 8, 9, 10, 11]),
+    ('Thioacetamide', 2723949, [0, 1, 3, 2]),
+    ('1-Phenylethanol', 7409, [0, 1, 8, 2, 3, 4, 5, 6, 7]),
+    ('1,1-Dimethylcyclohexane', 11549, [0, 1, 7, 2, 3, 4, 5, 6]),
+    ('M-Xylene', 7929, [0, 1, 2, 3, 7, 4, 5, 6]),
+    ('P-Xylene (atom order 2)', 7809, [0, 1, 2, 3, 4, 7, 5, 6]),
+    ('2,5-Dimethylfuran', 12266, [0, 1, 2, 3, 4, 6, 5]),
+    ('Toluene (atom order 3)', 1140, None),
+    ('O-Xylene', 7237, None),
+    ('Propylene Oxide', 6378, None),
+    ('2-Methyl-2-butene', 10553, None),
+    ('Methylketene', 138641, None),
+    ('Acetaldehyde', 177, None),
+    ('Propane', 6334, None),
+    ('Methyl propionate', 11124, None),
+    ('Schembl6298161', 132494933, None),
+    ('Ethylbenzene', 7500, None),
+    ('Triethylamine', 8471, None),
+    ('Ethanol', 702, None),
+    ('Ethyl Acetate', 8857, None),
+    ('Ethyl Acetate (atom order 2)', 8857, [0, 1, 2, 3, 5, 4]),
+    ('2-(Diethoxymethyl)-1,1-diethoxy-3-methylbutane', 638345, [0, 1, 2, 3, 15, 16, 17, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14]),
+    ('Diethyl Ether', 3283, None),
+    ('Nitroethane', 6587, None),
+    ('Trimethyl-lambda3-iodane', 20026379, None),
+    ('Methylamine', 6329, None),
+    ('Nitromethane', 6375, [0, 1, 3, 2]),
+    ('Trimethylamine', 1146, None),
+    ('1,1,3,3-Tetramethylguanidine', 66460, None),
+    ('Tetramethylurea', 12437, None),
+    ('4-(Dimethylamino)but-3-en-2-one', 566952, [6, 5, 7, 4, 3, 1, 0, 2]),
+    ('Dimethylformamide', 6228, None),
+    ('N,N-Dimethylthioformamide', 69794, None),
+    ('Dimepranol', 37511, [4, 3, 5, 2, 1, 6, 0]),
+    ('N-Nitrosodimethylamine', 6124, None),
+    ('N,N-Dimethylmethanesulphonamide', 70191, None),
+    ('1-Methylpyrrole', 7304, None),
+    ('Dimethylamine', 674, None),
+    ('Methomyl', 4109, [7, 6, 4, 5, 3, 2, 1, 0, 8, 9]),
+    ('Aldicarb', 2086, [9, 8, 6, 7, 5, 4, 3, 1, 0, 2, 10, 11]),
+    ('Methylamino methylcarbamate', 56997960, None),
+    ('N-Methylacetamide', 6582, [4, 3, 1, 0, 2]),
+    ('Methylhydrazine', 6061, None),
+    ('Methylhydroxylamine', 11647, None),
+    ('Dimethyl Ether', 8254, None),
+    ('Methyl 5-methylhexa-2,3-dienoate', 14785091, [9, 8, 6, 7, 5, 4, 3, 1, 0, 2]),
+    ('Carbamic acid, dimethyl-, methyl ester', 123254, [6, 5, 3, 4, 1, 0, 2]),
+    ('Methyl hydrogen carbonate', 78579, None),
+    ('Dimethyl Carbonate', 12021, None),
+    ('Methyl Carbamate', 11722, [0, 1, 2, 4, 3]),
+    ('Anisole', 7519, None),
+    ('Methyl formate', 7865, None),
+    ('Methoxyacetone', 22172, [5, 4, 3, 1, 2, 0]),
+    ('Methoxyacetone (atom order 2)', 22172, [5, 4, 3, 1, 0, 2]),
+    ('Methylphosphine', 68973, None),
+    ('[Methyl(propan-2-yl)phosphoryl]benzene', 12847228, [5, 3, 4, 1, 0, 2, 6, 7, 8, 9, 10, 11]),
+    ('Trimethylphosphine', 68983, None),
+    ('Methanethiol', 878, None),
+    ('Dimethyl Sulfone', 6213, None),
+    ('Methanesulfonamide', 72879, [0, 1, 4, 2, 3]),
+    ('Methanesulfinamide', 11115980, [0, 1, 3, 2]),
+    ("a'-Dimethyl thiophene", 18717507, [0, 1, 6, 2, 3, 4, 5]),
+    ('Schembl4657715', 57091962, None),
+    ('Trimethylamine oxide', 1145, None),
+    ('Methoxide', 3826051, None),
+    ('Silaethane', 70434, None),
+    ('Tetramethylsilane', 6396, None),
+    ('Dichloromethane', 6344, [1, 0, 2]),
+    ('Indole (atom order 2)', 798, [8, 7, 6, 4, 5, 0, 1, 2, 3]),
+    ('Carbamic Acid', 277, [2, 0, 1, 3]),
+    ('DL-Serine', 617, [5, 1, 0, 6, 2, 3, 4]),
+    ('Urea', 1176, [2, 0, 3, 1]),
+    ('Aniline', 6115, [6, 3, 2, 1, 0, 5, 4]),
+    ('Formamide', 713, [2, 0, 1]),
+    ('Glycine', 750, [4, 0, 1, 2, 3]),
+    ('Water', 962, None),
+    ('2-Pyridone', 8871, [3, 2, 1, 0, 6, 5, 4]),
+    ('4-Hydroxypyridine', 12290, [6, 5, 4, 3, 2, 1, 0]),
+    ('Succinic anhydride', 7922, [3, 2, 1, 0, 5, 6, 4]),
+    ('2-Piperidone', 12665, [5, 4, 6, 0, 1, 2, 3]),
+    ('2-Pyrrolidone', 12025, [3, 2, 1, 0, 5, 4]),
+    ('2-Imidazolidinone', 8453, [4, 3, 2, 1, 0, 5]),
+    ('2-Oxazolidinone', 73949, [4, 3, 5, 0, 1, 2]),
+    ('Ethylene carbonate', 7303, [4, 3, 2, 1, 0, 5]),
+    ('N-Nitrosopiperidine', 7526, [7, 6, 3, 2, 1, 0, 5, 4]),
+    ('4-Hydroxybenzoic Acid', 135, [8, 6, 7, 5, 4, 3, 2, 9, 1, 0]),
+    ('Benzoic Acid', 243, [8, 6, 7, 3, 2, 1, 0, 5, 4]),
+    ('2-Naphthol', 8663, [10, 5, 4, 3, 2, 1, 0, 9, 8, 7, 6]),
+    ('Phenol', 996, [6, 3, 2, 1, 0, 5, 4]),
+    ('3-Hydroxypyridine', 7971, [6, 2, 3, 4, 5, 0, 1]),
+    ('Cyclohexanol', 7966, [6, 3, 2, 1, 0, 5, 4]),
+    ('Hexitol', 453, [6, 5, 4, 7, 3, 8, 2, 9, 1, 10, 0, 11]),
+    ('Ethylene Glycol', 174, [2, 1, 0, 3]),
+    ('Cyclohexanone Oxime', 7517, [5, 4, 3, 2, 1, 0, 7, 6]),
+    ('Methyl isocyanide', 11646, [2, 1, 0]),
+    ('Ammonium', 223, None),
+    ('Bicyclo(2.2.1)heptane', 9233, None),
+    ('(-)-2-Butanol', 84682, [3, 2, 4, 1, 0]),
+    ('(+)-2-Butanol', 444683, [3, 2, 4, 1, 0]),
+    ('trans-1,2-Difluoroethylene', 5365501, [2, 1, 0, 3]),
+    ('cis-1,2-Difluoroethylene', 5462921, [2, 1, 0, 3]),
+    ('Propane (1-13C)', 12314535, [2, 1, 0]),
+    ('Carbon-13C', 105026, None),
+    ('Methylselenol', 440764, None),
+    ('Ethane', 6324, None),
+    ('Methanol', 887, None),
+    ('Hydrogen Cyanide', 768, None),
+    ('Methyl Ethyl Ketone', 6569, None),
+    ('Butyric Acid', 264, None),
+    ('Propylene', 8252, None),
+    ('Dimethylethylamine', 11723, None),
+    ('Trimethylphosphine oxide', 69609, None),
+    ('Methylammonium', 644041, None),
+    ('Ammonium Chloride', 25517, None),
+    ('Sodium Acetate', 517045, None),
+    # Substitute (2026-11-21, for the chemist's approval) for a hand-made zwitterion with
+    # no PubChem entry: a quaternary N+ with two methyls and a stereocentre elsewhere.
+    ('Lauryl Hydroxysultaine', 114474, None),
+]
+
+# Stereo and isotope labels matter to these tests: their structure is PubChem's isomeric SMILES.
+ISOMERIC_CIDS = {84682, 444683, 5365501, 5462921, 12314535, 105026}
+PUBCHEM_CID_URL = ("https://pubchem.ncbi.nlm.nih.gov/rest/pug/compound/cid/{}/property/"
+                   "MolecularFormula,ConnectivitySMILES,SMILES/JSON")
+
+
+def pubchem_by_cid(cid):
+    """PubChem's (formula, ConnectivitySMILES, isomeric SMILES) for `cid`, cached."""
+    cache = PUBCHEM_CACHE / f"cid_{cid}.json"
+    if not cache.exists():
+        cache.parent.mkdir(parents=True, exist_ok=True)
+        download(PUBCHEM_CID_URL.format(cid), cache)
+    p = json.loads(cache.read_text())["PropertyTable"]["Properties"][0]
+    return p["MolecularFormula"], p["ConnectivitySMILES"], p["SMILES"]
+
+
+def renumbered_smiles(name, smiles, order):
+    """`smiles` itself when `order` is None; otherwise written by RDKit with its atoms in
+    `order` (Kekule form); stops the build if RDKit would write them in another order or
+    the structure changed."""
+    if order is None:
+        return smiles  # PubChem's own text, in PubChem's atom order
+    mol = Chem.MolFromSmiles(smiles)
+    if sorted(order) != list(range(mol.GetNumAtoms())):
+        sys.exit(f"{name}: atom order is not a permutation of {mol.GetNumAtoms()} atoms")
+    mol = Chem.RenumberAtoms(mol, order)
+    Chem.Kekulize(mol, clearAromaticFlags=True)
+    text = Chem.MolToSmiles(mol, canonical=False, kekuleSmiles=True)
+    written = [int(i) for i in mol.GetProp("_smilesAtomOutputOrder").strip("[],").split(",")]
+    if written != list(range(mol.GetNumAtoms())):
+        sys.exit(f"{name}: RDKit does not keep the atom order")
+    if Chem.MolToInchiKey(Chem.MolFromSmiles(text)) != Chem.MolToInchiKey(
+            Chem.MolFromSmiles(smiles)):
+        sys.exit(f"{name}: the written SMILES is not PubChem's structure")
+    return text
+
+
+def charge_separated_nitrosamine(mol):
+    """The chemist's rule (2026-11-21): writes the one N-N=O group of `mol` charge-separated.
+    The amino N (single bonds only) gets a double bond to the nitroso N and a +1 charge; the
+    N=O becomes a single bond and the O gets a -1 charge. Atoms, their order and their
+    hydrogens are unchanged. Returns None unless there is exactly one such group."""
+    pattern = Chem.MolFromSmarts("[NX3;!$(N=*);+0]-[NX2;+0]=[OX1;+0]")
+    matches = mol.GetSubstructMatches(pattern)
+    if len(matches) != 1:
+        return None
+    amino, nitroso, oxygen = matches[0]
+    edited = Chem.RWMol(mol)
+    for atom in edited.GetAtoms():
+        atom.SetNoImplicit(True)  # keep every atom's hydrogens as they are
+        atom.SetNumExplicitHs(mol.GetAtomWithIdx(atom.GetIdx()).GetTotalNumHs())
+    edited.GetBondBetweenAtoms(amino, nitroso).SetBondType(Chem.BondType.DOUBLE)
+    edited.GetBondBetweenAtoms(nitroso, oxygen).SetBondType(Chem.BondType.SINGLE)
+    edited.GetAtomWithIdx(amino).SetFormalCharge(1)
+    edited.GetAtomWithIdx(oxygen).SetFormalCharge(-1)
+    result = edited.GetMol()
+    Chem.SanitizeMol(result)
+    return result
+
+
+def uncharged_nitro(mol):
+    """The chemist's rule (2026-11-21), the mirror of charge_separated_nitrosamine: writes
+    the one charge-separated nitro group [N+](=O)[O-] of `mol` with two N=O double bonds
+    and no charges. Atoms, their order and their hydrogens are unchanged. Returns None
+    unless there is exactly one such group."""
+    pattern = Chem.MolFromSmarts("[N+;X3](=[OX1;+0])-[OX1-]")
+    matches = mol.GetSubstructMatches(pattern)
+    if len(matches) != 1:
+        return None
+    nitrogen, _, oxygen = matches[0]
+    edited = Chem.RWMol(mol)
+    for atom in edited.GetAtoms():
+        atom.SetNoImplicit(True)
+        atom.SetNumExplicitHs(mol.GetAtomWithIdx(atom.GetIdx()).GetTotalNumHs())
+    edited.GetBondBetweenAtoms(nitrogen, oxygen).SetBondType(Chem.BondType.DOUBLE)
+    edited.GetAtomWithIdx(nitrogen).SetFormalCharge(0)
+    edited.GetAtomWithIdx(oxygen).SetFormalCharge(0)
+    result = edited.GetMol()
+    result.UpdatePropertyCache(strict=False)  # RDKit's own sanitizing would recharge it
+    return result
+
+
+# Molecules made by a named rule from a PubChem compound (the chemist's decisions,
+# 2026-11-21): (name, CID, rule).
+RULE_COMPOUNDS = [
+    ("N-Nitrosodimethylamine (charge-separated)", 6124, charge_separated_nitrosamine),
+    ("Nitromethane (uncharged nitro)", 6375, uncharged_nitro),
+]
+
+
+def rule_compounds():
+    lines = []
+    for name, cid, rule in RULE_COMPOUNDS:
+        formula, connectivity, _ = pubchem_by_cid(cid)
+        source = Chem.MolFromSmiles(connectivity)
+        made = rule(source)
+        if made is None:
+            sys.exit(f"{name}: rule {rule.__name__} does not apply exactly once")
+        if (rdMolDescriptors.CalcMolFormula(made) != formula
+                or Chem.GetFormalCharge(made) != 0
+                or [a.GetTotalNumHs() for a in made.GetAtoms()]
+                != [a.GetTotalNumHs() for a in source.GetAtoms()]
+                or [a.GetSymbol() for a in made.GetAtoms()]
+                != [a.GetSymbol() for a in source.GetAtoms()]):
+            sys.exit(f"{name}: rule {rule.__name__} changed the formula, charge or atoms")
+        if Chem.MolToInchiKey(made) != Chem.MolToInchiKey(source):
+            sys.exit(f"{name}: InChI does not treat the rule's result as CID {cid}")
+        Chem.Kekulize(made, clearAromaticFlags=True)
+        text = Chem.MolToSmiles(made, canonical=False, kekuleSmiles=True)
+        written = [int(i) for i in made.GetProp("_smilesAtomOutputOrder").strip("[],").split(",")]
+        if written != list(range(made.GetNumAtoms())):
+            sys.exit(f"{name}: RDKit does not keep PubChem's atom order")
+        lines.append(f"{name}\t{cid}\t{rule.__name__}\t{connectivity}\t{text}\t"
+                     f"{carbon_hybridizations(read_smiles(text))}")
+    return lines
+
+
+# Strings the SMILES-reader tests need that are not PubChem structures: notation variants
+# and deliberately broken or unusual input (the chemist's decision, 2026-11-21: a named,
+# RDKit-checked table instead of literals in the tests). Each is (name, string, compound):
+# where `compound` names a TEST_COMPOUNDS entry, the string is another way of writing that
+# compound, and the builder checks that RDKit reads it as the same structure (InChIKey).
+SYNTAX_CASES = [
+    ("empty input", "", None),
+    ("two-digit ring closures", "C%10CCCCC%10", "Cyclohexane"),
+    ("two-digit ring numbers 12 and 21", "C%12CC%21CC%12CC%21", "Bicyclo(2.2.1)heptane"),
+    ("ring bond order on the opening digit", "C=1CCCCC1", "Cyclohexene"),
+    ("ring bond order on the closing digit", "C1CCCCC=1", "Cyclohexene"),
+    ("ring bond order on both digits", "C=1CCCCC=1", "Cyclohexene"),
+    ("ring bond orders in conflict", "C=1CCCCC#1", None),
+    ("explicit hydrogen atoms on methane", "[H]C([H])([H])[H]", "Methane"),
+    ("explicit hydrogen atoms on one ethane methyl", "[H]C([H])([H])C", "Ethane"),
+    ("explicit hydrogen atoms on propane C1", "[H]C([H])(C)C", "Propane"),
+    ("explicit hydrogen atoms on methanol C", "[H]C([H])([H])O", "Methanol"),
+    ("explicit hydrogen atom on methanol O", "[H]OC", "Methanol"),
+    ("aromatic lowercase benzene", "c1ccccc1", "Benzene"),
+    ("aromatic lowercase atom after a Kekule ring", "C1=CC=CC=C1[nH]", None),
+    ("aromatic bond symbol", "CC:C", None),
+    ("aromatic bracket atom", "[cH4]", None),
+    ("atom class", "[CH4:1]", "Methane"),
+    ("sodium", "C[Na]", None),
+    ("silicon outside brackets", "CSi", None),
+    ("quadruple bond symbol", "C$C", None),
+    ("tetrahedral stereo class", "C[C@TH1H](O)C", None),
+    ("two components", "CC.O", None),
+    ("unclosed branch", "CC(C", None),
+    ("branch closed without opening", "CC)C", None),
+    ("empty branch", "C()C", None),
+    ("branch before any atom", "(C)C", None),
+    ("ring not closed", "C1CC", None),
+    ("ring closed on its own atom", "C11", None),
+    ("percent with one digit", "C%1C", None),
+    ("two ring closures between the same atoms", "C12CC12", None),
+    ("ring closure doubling a chain bond", "C1C1", None),
+    ("ring closure onto the branch root", "CC(C1C)1", None),
+    ("bond at the end", "CC=", None),
+    ("bond at the start", "=CC", None),
+    ("bond into an empty branch", "C(=)C", None),
+    ("unclosed bracket", "C[CH4", None),
+    ("empty bracket", "C[]C", None),
+    ("doubly charged CH2 written ++", "[CH2++]", None),
+    ("doubly charged CH2 written +2", "[CH2+2]", None),
+    ("cationic CH2", "[CH2+]", None),
+    ("CH in brackets between methyls", "C[CH]C", None),
+    ("bare carbon in brackets", "[C]", None),
+    ("CH2 radical", "[CH2]", None),
+    ("CH2 radical end of propane", "[CH2]CC", None),
+    ("O-CH fragment one hydrogen short", "CC(CO)O[CH]", None),
+    ("methoxy radical", "C[O]", None),
+    ("sulfur with three bonds", "C[S](C)C", None),
+    ("sulfur with three bonds and one hydrogen", "C[SH](C)C", None),
+    ("carbon with five bonds", "CC(C)(C)(C)C", None),
+    ("CH5", "[CH5]", None),
+    ("CF5", "FC(F)(F)(F)F", None),
+    ("neutral nitrogen with four single bonds", "CN(C)(C)C", None),
+    ("neutral nitrogen with five single bonds", "C[N](C)(C)(C)C", None),
+    ("iodine with two bonds in brackets", "C[I]C", None),
+    ("aromatic lowercase ethylbenzene", "CCc1ccccc1", "Ethylbenzene"),
+    ("aromatic lowercase o-xylene", "Cc1ccccc1C", "O-Xylene"),
+    ("aromatic lowercase m-xylene", "Cc1cccc(C)c1", "M-Xylene"),
+    ("aromatic bond between aromatic atoms", "c:c", None),
+    ("explicit single bond", "CC-O", "Ethanol"),
+    ("mixture with a charged component", "CC(C)O.[C-]#[O+]", None),
+    ("CH2 dication and two oxide anions, written ++", "[CH2++]C([O-])[O-]", None),
+    ("CH2 dication and two oxide anions, written +2", "[CH2+2]C([O-])[O-]", None),
+    ("CH2 dication and one oxide anion", "[CH2+2]CC[O-]", None),
+    ("oxide dianion written --", "[O--]C[CH2+]", None),
+    ("oxide dianion written -2, two cations", "[O-2]C[CH2+][CH2+]C", None),
+    ("aromatic lowercase naphthalene", "c1ccc2ccccc2c1", "Naphthalene"),
+    ("wildcard atom", "*C", None),
+]
+
+
+def syntax_cases(compound_smiles):
+    """Rows of smiles_syntax_cases.tsv: name, string, the compound it writes ('-' if none),
+    RDKit's verdict (accepted / rejected)."""
+    names = [name for name, _, _ in SYNTAX_CASES]
+    if len(set(names)) != len(names):
+        sys.exit("SYNTAX_CASES lists a name twice")
+    lines = []
+    for name, text, compound in SYNTAX_CASES:
+        mol = read_smiles(text) if text else None
+        if compound is not None:
+            if mol is None:
+                sys.exit(f"syntax case {name!r}: RDKit cannot read it as {compound}")
+            expected = Chem.MolToInchiKey(Chem.MolFromSmiles(compound_smiles[compound]))
+            if Chem.MolToInchiKey(Chem.RemoveHs(mol)) != expected:
+                sys.exit(f"syntax case {name!r} is not {compound}")
+        verdict = "accepted" if mol is not None else "rejected"
+        lines.append(f"{name}\t{text}\t{compound or '-'}\t{verdict}")
+    return lines
+
+
+def test_compounds():
+    names = [name for name, _, _ in TEST_COMPOUNDS]
+    if len(set(names)) != len(names):
+        sys.exit("TEST_COMPOUNDS lists a name twice")
+    lines = []
+    for name, cid, order in TEST_COMPOUNDS:
+        formula, connectivity, isomeric = pubchem_by_cid(cid)
+        source = isomeric if cid in ISOMERIC_CIDS else connectivity
+        smiles = renumbered_smiles(name, source, order)
+        mol = read_smiles(smiles)
+        lines.append(f"{name}\t{cid}\t{formula}\t{source}\t{smiles}\t"
+                     f"{carbon_hybridizations(mol)}")
     return lines
 
 
 # ---- hand-written spec cases and valences ---------------------------------------------
 
-# Test helpers in the hand-written tests (SPEC_DIRS) whose first argument is a SMILES literal.
-SPEC_HELPERS = ("parse_smiles", "parse_ok", "parse", "expect_error", "groups", "environments",
-                "carbon_class_sizes", "topological", "verdict", "exchangeable")
-SPEC_DIRS = ("tests/chem", "tests/filter")
-
-
-def spec_smiles():
-    """Every SMILES literal the hand-written chem tests pass to a SPEC_HELPERS function,
-    found by pattern so no list is typed by hand."""
-    pattern = re.compile(r"\b(?:" + "|".join(SPEC_HELPERS) + r')\("((?:[^"\\]|\\.)*)"')
-    found = set()
-    for path in sorted(p for d in SPEC_DIRS for p in (REPO / d).glob("*_test.cpp")):
-        for match in pattern.finditer(path.read_text(encoding="utf-8")):
-            found.add(match.group(1).encode().decode("unicode_escape"))
-    return sorted(found)
-
-
-def build_spec_oracle():
-    """RDKit's view of each spec SMILES: an oracle line (same columns as the PubChem
-    oracle), or 'rejected' where RDKit refuses it (unparsable, valence error, radical)."""
+def build_spec_oracle(smiles_list):
+    """RDKit's view of each SMILES the hand-written tests read (test_compounds.tsv,
+    rule_compounds.tsv, smiles_syntax_cases.tsv): an oracle line (same columns as the
+    PubChem oracle), or 'rejected' where RDKit refuses it (unparsable, valence error,
+    radical)."""
     lines = []
-    for smiles in spec_smiles():
+    for smiles in sorted(set(smiles_list)):
         if "\t" in smiles or "\n" in smiles:
             continue
         line = oracle_line(smiles) if smiles else None
@@ -1006,7 +1458,7 @@ def main():
     if not args.nmrshiftdb.exists():
         args.nmrshiftdb.parent.mkdir(parents=True, exist_ok=True)
         download(NMRSHIFTDB_URL, args.nmrshiftdb)
-    download(LICENSE_URL, OUT / "NMRSHIFTDB2_LICENSE.txt")
+    refresh_license(OUT / "NMRSHIFTDB2_LICENSE.txt")
     nmr_lines, nmr_all = build_nmrshiftdb(args.nmrshiftdb)
     (OUT / "nmrshiftdb2_13c_all.tsv").write_text(header(
         ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",
@@ -1046,13 +1498,27 @@ def main():
          "# (statistics.quantiles, inclusive method) of the C=N carbon shift (ppm)."]
         + measure_nmrshiftdb(args.nmrshiftdb),
         [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
+    # What the hand-written tests read by name: PubChem compounds, rule-made compounds and
+    # the named syntax cases.
+    compound_lines = test_compounds()
+    rule_lines = rule_compounds()
+    compound_smiles = {line.split("\t")[0]: line.split("\t")[4]
+                       for line in compound_lines + rule_lines}
+    syntax_lines = syntax_cases(compound_smiles)
     (OUT / "spec_rdkit_oracle.tsv").write_text(header(
-        ["# RDKit's reading of every SMILES literal in the hand-written tests",
-         "# (tests/chem/*_test.cpp, tests/filter/*_test.cpp, found by pattern; SPEC_HELPERS",
-         "# in the builder).",
+        ["# RDKit's reading of every SMILES the hand-written tests read by name",
+         "# (test_compounds.tsv, rule_compounds.tsv, smiles_syntax_cases.tsv).",
          "# Columns as pubchem_rdkit_oracle.tsv, or SMILES and 'rejected'.",
-         "# fragments: " + " ".join(FRAGMENTS)] + build_spec_oracle(),
-        ["tests/chem/*_test.cpp", "tests/filter/*_test.cpp"]))
+         "# fragments: " + " ".join(FRAGMENTS)]
+        + build_spec_oracle(list(compound_smiles.values())
+                            + [line.split("\t")[1] for line in syntax_lines]),
+        [PUBCHEM_CID_URL, "SYNTAX_CASES in the builder"]))
+    (OUT / "smiles_syntax_cases.tsv").write_text(header(
+        ["# SMILES-reader test strings that are not PubChem structures (SYNTAX_CASES in the",
+         "# builder; the chemist's decision, 2026-11-21), read by name in the tests.",
+         "# Columns: name, string, the test compound it writes ('-' if none; checked by",
+         "# InChIKey), RDKit's verdict (accepted / rejected)."] + syntax_lines,
+        ["SYNTAX_CASES in the builder"]))
     (OUT / "valence_probes.tsv").write_text(header(
         ["# Rule-generated probe molecules (valence_probes in the builder). Columns: SMILES,",
          "# RDKit's verdict (ok = closed-shell molecule it accepts), RDKit's hydrogens on",
@@ -1072,6 +1538,19 @@ def main():
         ["# Charge-separated neutral compounds looked up by name on PubChem (NAMED_COMPOUNDS",
          "# in the builder). Columns: name, CID, formula, ConnectivitySMILES."]
         + named_compounds(), [PUBCHEM_NAME_URL]))
+    (OUT / "test_compounds.tsv").write_text(header(
+        ["# Molecules the hand-written tests read by name (TEST_COMPOUNDS in the builder; the",
+         "# chemist's rule, 2026-11-21: no hand-typed SMILES). Columns: name, CID, formula and",
+         "# SMILES (from PubChem), the SMILES the tests read (RDKit's writing of PubChem's",
+         "# structure in the test's atom order), RDKit's hybridization of each carbon of it",
+         "# (1 sp, 2 sp2, 3 sp3; 0 for other atoms)."]
+        + compound_lines, [PUBCHEM_CID_URL]))
+    (OUT / "rule_compounds.tsv").write_text(header(
+        ["# Molecules made by a named rule (RULE_COMPOUNDS in the builder) from a PubChem",
+         "# compound, which the hand-written tests read by name. Columns: name, source CID,",
+         "# rule, the source's ConnectivitySMILES (PubChem), the rule's result as the tests",
+         "# read it, RDKit's hybridization of each carbon of it (1 sp, 2 sp2, 3 sp3; 0 other)."]
+        + rule_lines, [PUBCHEM_CID_URL]))
     (OUT / "pubchem_rdkit_oracle.tsv").write_text(header(
         ["# Columns: SMILES, per-atom total H, per-atom symmetry class (first appearance),",
          "# RDKit fragment counts in the order of the 'fragments:' line, 1 if RDKit's",
@@ -1079,7 +1558,9 @@ def main():
          "# tautomers, arynes), standard InChI's equivalence classes (AuxInfo /E:; '-' if",
          "# InChI fails), the key atoms RDKit's fragment patterns match (KEY_ATOMS; per",
          "# fragment 'hallmark=atoms' items, fragments separated by ';').",
-         "# fragments: " + " ".join(FRAGMENTS)] + oracle,
+         "# fragments: " + " ".join(FRAGMENTS),
+         "# Last column: RDKit's hybridization of each carbon (1 sp, 2 sp2, 3 sp3; 0 for other",
+         "# atoms or other hybridizations)."] + oracle,
         [PUBCHEM_URL.format(f) for f in formulas]))
     (OUT / "nmrshiftdb2_pubchem_matches.tsv").write_text(header(
         ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",

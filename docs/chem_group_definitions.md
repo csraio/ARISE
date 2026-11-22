@@ -205,17 +205,17 @@ files):
 | pyrrole-n | 1 | ChEBI | the pyrrole N is aromatic, not an amine (row 15; user decision) |
 | thiourea | 1 | ChEBI | urea needs C=O |
 | ring-pattern | 1 | PubChem | RDKit has no pyrrole fragment; this pattern (written like fr_furan o1cccc1) is PubChem CID 8027 (1H-pyrrole), InChIKey KAESVJOAVNADME-UHFFFAOYSA-N |
-| charged | 5 | chem tests | ARISE rejects charged species as candidates (molecule.hpp StructureIssue) |
-| unsupported-notation | 5 | chem tests | ARISE reads Kekulé SMILES: no quadruple bonds, aromatic ':' bonds, lowercase aromatic atoms, @TH-style stereo classes or atom maps (molecule.hpp) |
+| charged | 6 | chem tests | ARISE rejects charged species as candidates (molecule.hpp StructureIssue) |
+| unsupported-notation | 10 | chem tests | ARISE reads Kekulé SMILES: no quadruple bonds, aromatic ':' bonds, lowercase aromatic atoms, @TH-style stereo classes, atom maps or '*' wildcard atoms (molecule.hpp) |
 | anhydride-not-ester | 2 | chem tests | fr_ester counts each C(=O)O of an anhydride; anhydrides are their own group (row 6) |
-| alkoxide-as-alcohol | 2 | chem tests | an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H |
+| alkoxide-as-alcohol | 1 | chem tests | an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H |
 | carbamic-acid | 1 | chem tests | fr_COO2 counts the C(=O)OH; a carboxylic acid needs carbon or H on the acyl side, and carbamic acids are excluded from row 8 |
 | carbonic-monoester | 1 | chem tests | one O is OH; a carbonate ester needs carbon on both O |
 | carbonyl-oxide | 1 | chem tests | C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O |
 | conflicting-ring-bond | 1 | chem tests | the two ends of a ring closure give different bond orders, an error in OpenSMILES; RDKit takes one of them |
 | formaldehyde | 1 | chem tests | fr_aldehyde needs carbon on the carbonyl; formaldehyde is an aldehyde (user decision) |
 | formate | 1 | chem tests | fr_ester needs carbon on the acyl side; formates are esters (user decision) |
-| mixture | 1 | chem tests | ARISE reads one molecule; '.' is a ParseError (molecule.hpp) |
+| mixture | 4 | chem tests | ARISE reads one molecule; '.' is a ParseError (molecule.hpp) |
 | unsupported-element | 1 | chem tests | outside ARISE's elements (molecule.hpp) |
 | bmrb-assignment | 1 | BMRB | BMRB assigns 1H peaks that have HSQC cross peaks to H on O or N (guanosine, bmse000091): the entry's assignment contradicts its own HSQC list |
 | hypervalent-charged | 68 | valence probes | RDKit's valence lists for charged Cl, Br, I, P and Si (3-6 bonds on Cl+/Br+, ate complexes of I-, P-, Si-, P+ with 6 bonds) differ from ARISE's charge-shifted normal valences |
