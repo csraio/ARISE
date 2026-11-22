@@ -82,9 +82,11 @@ jobs:
 
   benchmark:
     # Plan 3d: times cleaning + pruning of the 10,000+-row benchmark case, natively and in
-    # WebAssembly. Report only for now: it fails on errors, never on time, until ARISE is
-    # under the 100 ms budget with room to spare (then --budget-ms 100 is added).
-    name: benchmark (report only)
+    # WebAssembly, and fails when the slowest scenario's median total is over 300 ms: a
+    # guard so the part B speed-up cannot slip back (the chemist's decision, 2026-11-22;
+    # CI medians were 154 ms native, 201 ms wasm). The goal stays 100 ms (CLAUDE.md),
+    # to revisit once the web client exists.
+    name: benchmark (300 ms guard)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -106,14 +108,14 @@ jobs:
         run: |
           cmake --preset release
           cmake --build --preset release --target arise_bench
-          build/release/bench/arise_bench --runs 5
+          build/release/bench/arise_bench --runs 5 --budget-ms 300
 
       - name: WebAssembly (release, Node)
         run: |
           . "$HOME/.local/share/emsdk/emsdk_env.sh"
           cmake --preset wasm-release
           cmake --build --preset wasm-release
-          "$EMSDK_NODE" build/wasm-release/bench/arise_bench.js --runs 5
+          "$EMSDK_NODE" build/wasm-release/bench/arise_bench.js --runs 5 --budget-ms 300
 
   lint:
     name: format + clang-tidy
