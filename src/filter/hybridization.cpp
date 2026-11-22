@@ -63,8 +63,13 @@ core::Result<Row> parse_row(std::size_t line, std::string_view text) {
         return parse_error(line, "expected " + std::to_string(kColumns) + " fields, got " +
                                      std::to_string(fields.size()));
     }
-    const auto* name = std::find(kNames.begin(), kNames.end(), fields[0]);
-    if (name == kNames.end()) {
+    std::size_t index = kNames.size();
+    for (std::size_t i = 0; i < kNames.size(); ++i) {
+        if (kNames[i] == fields[0]) {
+            index = i;
+        }
+    }
+    if (index == kNames.size()) {
         return parse_error(line, "unknown hybridization '" + std::string{fields[0]} + "'");
     }
     for (const auto column : {kCarbonsColumn, kMoleculesColumn}) {
@@ -86,7 +91,7 @@ core::Result<Row> parse_row(std::size_t line, std::string_view text) {
                                      " is above the 99.9th " + std::string{fields[kHighColumn]});
     }
     return Row{
-        .index = static_cast<std::size_t>(name - kNames.begin()),
+        .index = index,
         .range = {.low = core::Ppm{values[kLowColumn]}, .high = core::Ppm{values[kHighColumn]}},
     };
 }

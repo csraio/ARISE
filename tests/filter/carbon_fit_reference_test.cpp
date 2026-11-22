@@ -457,9 +457,9 @@ TEST(CarbonFitReference, AcceptedHybridizationSuggestionsKeepTrueStructuresActiv
 #endif
 }
 
-// A report, not a check, taking about 5 minutes, so it runs only on demand:
-//   build/dev/tests/filter/arise_filter_tests --gtest_also_run_disabled_tests \
-//       --gtest_filter='*PubChemRanksWithoutDept*'
+// A report, not a check, taking about 5 minutes, so it runs only on demand: run
+// build/dev/tests/filter/arise_filter_tests with --gtest_also_run_disabled_tests and
+// --gtest_filter='*PubChemRanksWithoutDept*'.
 // Measured 2026-11-22 over 114 records: median worst-case rank 340 without DEPT, 120 with
 // accepted sp2/sp3 counts (38 with a complete DEPT).
 TEST(CarbonFitReference, DISABLED_PubChemRanksWithoutDeptWithAndWithoutAcceptedCounts) {
