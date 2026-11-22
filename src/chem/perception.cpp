@@ -140,16 +140,23 @@ bool keep_cycle_core(const Molecule& molecule, const std::vector<bool>& ring_bon
     return left > 0;
 }
 
-// Every simple cycle of `size` atoms among the `allowed` atoms, each listed once in walking
-// order, starting at its smallest atom. Only ring bonds are walked: a cycle never uses a
-// bridge, so skipping bridges finds the same cycles in the same order, faster.
+// Every simple cycle of `min_size` to `max_size` atoms (min_size at least 3) among the
+// `allowed` atoms, each listed once in walking order, starting at its smallest atom; one
+// list per size, find()[size - min_size]. One walk serves all sizes: each list comes out in
+// the order a walk for that size alone would give. Only ring bonds are walked: a cycle
+// never uses a bridge, so skipping bridges finds the same cycles in the same order.
 class RingFinder {
 public:
-    RingFinder(const Molecule& molecule, std::size_t size, const std::vector<bool>& ring_bonds,
-               const std::vector<bool>& allowed)
-        : molecule_{&molecule}, size_{size}, ring_bonds_{&ring_bonds}, allowed_{&allowed} {}
+    RingFinder(const Molecule& molecule, std::size_t min_size, std::size_t max_size,
+               const std::vector<bool>& ring_bonds, const std::vector<bool>& allowed)
+        : molecule_{&molecule},
+          min_size_{min_size},
+          max_size_{max_size},
+          ring_bonds_{&ring_bonds},
+          allowed_{&allowed},
+          rings_(max_size - min_size + 1) {}
 
-    std::vector<Ring> find() {
+    std::vector<std::vector<Ring>> find() {
         on_path_.assign(molecule_->atoms().size(), false);
         for (std::size_t start = 0; start < molecule_->atoms().size(); ++start) {
             if ((*allowed_)[start]) {
@@ -170,13 +177,11 @@ private:
                 continue;
             }
             const std::size_t next = molecule_->neighbor(bond, last);
-            if (path_.size() == size_) {
-                if (next == start) {
-                    record();
-                }
-                continue;
+            if (next == start && path_.size() >= min_size_) {
+                record();
             }
-            if (next <= start || on_path_[next] || !(*allowed_)[next]) {
+            if (path_.size() == max_size_ || next <= start || on_path_[next] ||
+                !(*allowed_)[next]) {
                 continue;
             }
             path_.push_back(next);
@@ -190,17 +195,18 @@ private:
     // Each cycle is walked in both directions; keep the one whose second atom is smaller.
     void record() {
         if (path_[1] < path_.back()) {
-            rings_.push_back(path_);
+            rings_[path_.size() - min_size_].push_back(path_);
         }
     }
 
     const Molecule* molecule_;  // not null
-    std::size_t size_;
+    std::size_t min_size_;
+    std::size_t max_size_;
     const std::vector<bool>* ring_bonds_;  // not null; per bond, from ring_bonds()
     const std::vector<bool>* allowed_;     // not null; per atom
     std::vector<std::size_t> path_;
-    std::vector<bool> on_path_;  // per atom: on path_
-    std::vector<Ring> rings_;
+    std::vector<bool> on_path_;             // per atom: on path_
+    std::vector<std::vector<Ring>> rings_;  // per size
 };
 
 // The single double-bond partner of `atom`, or nothing when the atom has no double bond,
@@ -308,8 +314,9 @@ Aromaticity perceive_aromaticity(const Molecule& molecule) {
     if (!keep_cycle_core(molecule, result.ring_bonds, allowed)) {
         return result;  // no cycle through atoms that can be aromatic
     }
-    auto pending = RingFinder{molecule, 6, result.ring_bonds, allowed}.find();
-    auto five = RingFinder{molecule, 5, result.ring_bonds, allowed}.find();
+    auto found = RingFinder{molecule, 5, 6, result.ring_bonds, allowed}.find();
+    auto pending = std::move(found[1]);  // six-membered first, then five
+    const auto& five = found[0];
     pending.insert(pending.end(), five.begin(), five.end());
     bool changed = true;
     while (changed) {
@@ -1404,10 +1411,9 @@ bool is_pyridone_ring(const Molecule& molecule, const Ring& ring) {
 // carbons (the hydroxypyridine tautomer; key atom: the C-OH carbon).
 Occurrences find_pyridones(const Molecule& molecule, const Aromaticity& aromaticity) {
     Occurrences found;
-    const auto in_ring = ring_bonds(molecule);
     const auto allowed = ring_elements(molecule);
-    const auto rings = RingFinder{molecule, 6, in_ring, allowed}.find();
-    for (const auto& ring : rings) {
+    const auto six = RingFinder{molecule, 6, 6, aromaticity.ring_bonds, allowed}.find();
+    for (const auto& ring : six[0]) {
         if (is_pyridone_ring(molecule, ring)) {
             const auto carbonyl = std::find_if(ring.begin(), ring.end(), [&](std::size_t a) {
                 return is_carbonyl_carbon(molecule, a);
