@@ -56,8 +56,25 @@
       "execution": { "noTestsAction": "error" }
     },
     {
+      "name": "skip-heavy",
+      "hidden": true,
+      "filter": {
+        "exclude": {
+          "name": "^(CarbonFitReference\\.|GroupSuggestionHoldout\\.|Reference\\.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth$|Provenance\\.GroupShiftsAreRecomputedFromTheExtract$|Reference\\.KeyAtomsMatchRdkitFragmentPatterns$|Reference\\.EveryOccurrenceHasItsHallmarksOnCarbon$)"
+        }
+      }
+    },
+    {
       "name": "asan",
+      "inherits": "skip-heavy",
       "configurePreset": "asan",
+      "output": { "outputOnFailure": true },
+      "execution": { "noTestsAction": "error" }
+    },
+    {
+      "name": "gate-selftest",
+      "inherits": "skip-heavy",
+      "configurePreset": "dev",
       "output": { "outputOnFailure": true },
       "execution": { "noTestsAction": "error" }
     },

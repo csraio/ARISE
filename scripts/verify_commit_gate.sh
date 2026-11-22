@@ -42,9 +42,13 @@ fail() {
     failures=$((failures + 1))
 }
 
-# Commits in the throwaway worktree through the hooks under test.
+# Commits in the throwaway worktree through the hooks under test. The hook runs the
+# gate-selftest test preset (every test but the heavy full-database ones, which take most
+# of the time and do not bear on what the gate accepts; user decision
+# 2026-11-21). Real commits run every test.
 gate_commit() {
-    git -c core.hooksPath="$hooks_dir" -c user.name=gate -c user.email=gate@invalid \
+    ARISE_GATE_TEST_PRESET=gate-selftest \
+        git -c core.hooksPath="$hooks_dir" -c user.name=gate -c user.email=gate@invalid \
         commit --quiet --message "gate check" "$@" >"$log" 2>&1
 }
 
