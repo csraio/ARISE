@@ -538,8 +538,9 @@ Neighbourhood neighbourhood(const Molecule& molecule, const Aromaticity& aromati
     return result;
 }
 
-// Work space for refine(), reused across rounds.
+// Work space for refine(), reused across rounds and calls for one molecule.
 struct RefineWork {
+    std::vector<int> refined;
     Signatures signatures;
     std::vector<std::pair<int, int>> around;
     std::vector<std::size_t> order;
@@ -551,9 +552,9 @@ struct RefineWork {
 // Atoms are grouped by label with a stable counting pass, so groups come in label order;
 // only groups of two or more need their signatures, built and sorted within the group. An
 // atom alone in its group keeps its place whatever its neighbours. Labels must be
-// non-negative. `classes` receives the number of ranks.
-std::vector<int> refine_round(const Neighbourhood& neighbourhood, const std::vector<int>& labels,
-                              RefineWork& work, std::size_t& classes) {
+// non-negative. The ranks go to work.refined; returns how many there are.
+std::size_t refine_round(const Neighbourhood& neighbourhood, const std::vector<int>& labels,
+                         RefineWork& work) {
     const std::size_t n = labels.size();
     // One slot per label value 0..max, plus one.
     const std::size_t values =
@@ -603,7 +604,8 @@ std::vector<int> refine_round(const Neighbourhood& neighbourhood, const std::vec
         }
         begin = end;
     }
-    std::vector<int> result(n);
+    auto& result = work.refined;
+    result.resize(n);
     int next = 0;
     for (std::size_t k = 0; k < n; ++k) {
         if (k > 0 && (labels[order[k - 1]] != labels[order[k]] || less(order[k - 1], order[k]))) {
@@ -611,21 +613,19 @@ std::vector<int> refine_round(const Neighbourhood& neighbourhood, const std::vec
         }
         result[order[k]] = next;
     }
-    classes = n == 0 ? 0 : static_cast<std::size_t>(next) + 1;
-    return result;
+    return n == 0 ? 0 : static_cast<std::size_t>(next) + 1;
 }
 
 // Refines `labels` (all non-negative) on neighbour labels (bond code, label) until the
 // number of classes stops growing.
-std::vector<int> refine(const Neighbourhood& neighbourhood, std::vector<int> labels) {
+std::vector<int> refine(const Neighbourhood& neighbourhood, std::vector<int> labels,
+                        RefineWork& work) {
     const std::size_t n = neighbourhood.atoms();
-    RefineWork work;
     std::size_t classes = distinct(labels);
     for (std::size_t round = 0; round <= n; ++round) {
-        std::size_t refined_classes = 0;
-        auto refined = refine_round(neighbourhood, labels, work, refined_classes);
+        const std::size_t refined_classes = refine_round(neighbourhood, labels, work);
         const bool stable = refined_classes == classes;
-        labels = std::move(refined);
+        labels.swap(work.refined);
         classes = refined_classes;
         if (stable) {
             break;
@@ -1119,7 +1119,7 @@ std::vector<Pick> stereo_splits(const Molecule& molecule, const std::vector<int>
 // "cis" methyls of a symmetric molecule) stay equivalent to each other.
 template <typename Rules>
 std::vector<int> split_until_stable(const Molecule& molecule, const Neighbourhood& neighbourhood,
-                                    std::vector<int> labels, Rules rules) {
+                                    std::vector<int> labels, Rules rules, RefineWork& work) {
     for (std::size_t round = 0; round <= molecule.atoms().size(); ++round) {
         const auto picks = rules(labels);
         if (picks.empty()) {
@@ -1137,7 +1137,7 @@ std::vector<int> split_until_stable(const Molecule& molecule, const Neighbourhoo
             next += inserted ? 1 : 0;
             labels[pick.atom] = it->second;
         }
-        labels = refine(neighbourhood, std::move(labels));
+        labels = refine(neighbourhood, std::move(labels), work);
         if (distinct(labels) == before) {
             break;
         }
@@ -1674,8 +1674,9 @@ std::vector<std::vector<std::size_t>> aromatic_rings(const Molecule& molecule) {
 std::vector<std::size_t> symmetry_classes(const Molecule& molecule) {
     const auto aromaticity = perceive_aromaticity(molecule);
     const auto delocalized = delocalized_bonds(molecule);
+    RefineWork work;
     return first_appearance(refine(neighbourhood(molecule, aromaticity, delocalized),
-                                   initial_labels(molecule, delocalized)));
+                                   initial_labels(molecule, delocalized), work));
 }
 
 NmrEquivalence nmr_equivalence(const Molecule& molecule) {
@@ -1683,7 +1684,8 @@ NmrEquivalence nmr_equivalence(const Molecule& molecule) {
     const auto delocalized = delocalized_bonds(molecule);
     const auto links = neighbourhood(molecule, aromaticity, delocalized);
     const auto& in_ring = aromaticity.ring_bonds;
-    const auto topological = refine(links, initial_labels(molecule, delocalized));
+    RefineWork work;
+    const auto topological = refine(links, initial_labels(molecule, delocalized), work);
     const auto hard = [&](const std::vector<int>& labels) {
         auto picks = ez_splits(molecule, aromaticity, labels, Strength::Always);
         auto rotation = rotation_splits(molecule, labels, Barrier::Slow);
@@ -1702,8 +1704,8 @@ NmrEquivalence nmr_equivalence(const Molecule& molecule) {
         picks.insert(picks.end(), gem.begin(), gem.end());
         return picks;
     };
-    const auto fewest = split_until_stable(molecule, links, topological, hard);
-    const auto most = split_until_stable(molecule, links, fewest, all);
+    const auto fewest = split_until_stable(molecule, links, topological, hard, work);
+    const auto most = split_until_stable(molecule, links, fewest, all, work);
     return NmrEquivalence{.fewest = first_appearance(fewest), .most = first_appearance(most)};
 }
 
