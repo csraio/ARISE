@@ -9,6 +9,8 @@
 #include "arise/chem/perception.hpp"
 #include "arise/core/result.hpp"
 #include "arise/filter/groups.hpp"
+#include "arise/filter/proton_groups.hpp"
+#include "arise/io/peak_csv.hpp"
 #include "arise/io/pubchem.hpp"
 #include "arise/nmr1d/dept.hpp"
 
@@ -42,6 +44,9 @@ struct SpectraText {
     SpectrumText carbon;
     std::optional<SpectrumText> dept135;
     std::optional<SpectrumText> dept90;
+    /// The 1H list (shift, optional integral as a proton count), when entered; only group
+    /// suggestions use it (the 1H plan, 2026-11-22).
+    std::optional<SpectrumText> proton = std::nullopt;
 };
 
 /// The PubChem address listing every compound with `formula` (io::pubchem_formula_search_url).
@@ -55,11 +60,27 @@ struct SpectraText {
 [[nodiscard]] core::Result<std::vector<nmr1d::CarbonAssignment>> read_spectra(
     const SpectraText& spectra);
 
-/// The groups the spectra suggest from ARISE's built-in measured windows
-/// (filter::suggest_groups with filter::measured_hallmark_windows). Suggestions are never
-/// eliminations; the chemist confirms.
-[[nodiscard]] core::Result<std::vector<filter::GroupSuggestion>> suggest(
-    const SpectraText& spectra, filter::SuggestOptions options);
+/// The 1H peaks (io::parse_peak_csv or io::parse_pasted_protons), or none when no 1H spectrum
+/// was entered. Errors keep their code and name the spectrum: "1H spectrum: line 3: ...".
+[[nodiscard]] core::Result<std::optional<std::vector<io::ObservedPeak>>> read_protons(
+    const SpectraText& spectra);
+
+/// The groups each spectrum suggests, from ARISE's built-in measured windows.
+struct Suggestions {
+    /// filter::suggest_groups with filter::measured_hallmark_windows.
+    std::vector<filter::GroupSuggestion> carbon;
+    /// filter::suggest_groups_from_protons with filter::measured_proton_windows (round 1);
+    /// empty without a 1H spectrum.
+    std::vector<filter::ProtonSuggestion> proton;
+
+    friend bool operator==(const Suggestions&, const Suggestions&) = default;
+};
+
+/// The groups the spectra suggest. Suggestions are never eliminations; the chemist confirms
+/// (a group from 1H evidence only as likely, filter::ConfirmedGroups::likely_present).
+[[nodiscard]] core::Result<Suggestions> suggest(const SpectraText& spectra,
+                                                filter::SuggestOptions options,
+                                                filter::ProtonOptions proton_options);
 
 /// The group whose chem::to_string is `name` ("ketone"), if any.
 [[nodiscard]] std::optional<chem::Group> group_named(std::string_view name);

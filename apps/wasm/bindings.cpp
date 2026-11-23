@@ -5,7 +5,8 @@
 // only converts values.
 //
 // A spectrum is {format: "csv" | "pasted", text: string}; the spectra are
-// {carbon: spectrum, dept135: spectrum | null, dept90: spectrum | null}.
+// {carbon: spectrum, dept135: spectrum | null, dept90: spectrum | null,
+//  proton: spectrum | null} (proton may also be left out).
 
 #include "arise/core/error.hpp"
 #include "arise/core/result.hpp"
@@ -91,9 +92,14 @@ Result<SpectraText> spectra_of(const val& value) {
     if (!dept90.ok()) {
         return std::move(dept90).error();
     }
+    auto proton = optional_spectrum_of(value["proton"], "spectra.proton");
+    if (!proton.ok()) {
+        return std::move(proton).error();
+    }
     return SpectraText{.carbon = std::move(carbon).value(),
                        .dept135 = std::move(dept135).value(),
-                       .dept90 = std::move(dept90).value()};
+                       .dept90 = std::move(dept90).value(),
+                       .proton = std::move(proton).value()};
 }
 
 // The groups named in the JavaScript array `value`.
@@ -159,15 +165,25 @@ std::string suggest(const val& spectra, const val& use_dept) {
     if (!parsed.ok() || !dept.ok()) {
         return arise::pipeline::to_json(parsed.ok() ? dept.error() : parsed.error());
     }
-    return json_of(arise::pipeline::suggest(parsed.value(), {.use_dept = dept.value()}),
-                   [](const auto& suggestions) {
-                       return arise::pipeline::to_json(
-                           std::span<const arise::filter::GroupSuggestion>{suggestions});
+    return json_of(arise::pipeline::suggest(parsed.value(), {.use_dept = dept.value()}, {}),
+                   [](const arise::pipeline::Suggestions& suggestions) {
+                       return arise::pipeline::to_json(suggestions);
                    });
 }
 
-// The confirmed groups from the JavaScript arrays `present` and `absent`.
-Result<arise::filter::ConfirmedGroups> confirmed_of(const val& present, const val& absent) {
+std::string read_protons(const val& spectra) {
+    const auto parsed = spectra_of(spectra);
+    if (!parsed.ok()) {
+        return arise::pipeline::to_json(parsed.error());
+    }
+    return json_of(arise::pipeline::read_protons(parsed.value()),
+                   [](const auto& peaks) { return arise::pipeline::protons_json(peaks); });
+}
+
+// The confirmed groups from the JavaScript arrays `present`, `absent` and `likely` (groups
+// confirmed from 1H evidence only: soft, filter::ConfirmedGroups::likely_present).
+Result<arise::filter::ConfirmedGroups> confirmed_of(const val& present, const val& absent,
+                                                    const val& likely) {
     auto yes = groups_of(present, "present");
     if (!yes.ok()) {
         return std::move(yes).error();
@@ -176,16 +192,21 @@ Result<arise::filter::ConfirmedGroups> confirmed_of(const val& present, const va
     if (!no.ok()) {
         return std::move(no).error();
     }
+    auto maybe = groups_of(likely, "likely");
+    if (!maybe.ok()) {
+        return std::move(maybe).error();
+    }
     return arise::filter::ConfirmedGroups{.present = std::move(yes).value(),
-                                          .absent = std::move(no).value()};
+                                          .absent = std::move(no).value(),
+                                          .likely_present = std::move(maybe).value()};
 }
 
 std::string rank(const val& formula, const val& pubchem_csv, const val& spectra, const val& present,
-                 const val& absent, const val& use_dept) {
+                 const val& absent, const val& likely, const val& use_dept) {
     const auto formula_text = string_of(formula, "formula");
     const auto csv = string_of(pubchem_csv, "pubchemCsv");
     const auto parsed = spectra_of(spectra);
-    const auto confirmed = confirmed_of(present, absent);
+    const auto confirmed = confirmed_of(present, absent, likely);
     const auto dept = flag_of(use_dept, "useDept");
     for (const Error* error :
          {formula_text.ok() ? nullptr : &formula_text.error(), csv.ok() ? nullptr : &csv.error(),
@@ -208,5 +229,6 @@ EMSCRIPTEN_BINDINGS(arise_engine) {
     emscripten::function("groupNames", &group_names);
     emscripten::function("readSpectra", &read_spectra);
     emscripten::function("suggest", &suggest);
+    emscripten::function("readProtons", &read_protons);
     emscripten::function("rank", &rank);
 }

@@ -46,12 +46,15 @@
           Paste a peak list (one shift per line, optionally followed by an intensity; tabs,
           semicolons or spaces between them, a point for decimals), upload a CSV file
           (columns <code>shift_ppm</code> and <code>intensity</code>), or type into a table. DEPT intensities
-          need their sign: in DEPT-135, CH and CH3 up, CH2 down.
+          need their sign: in DEPT-135, CH and CH3 up, CH2 down. For 1H, the second column is the
+          integral as a number of protons (optional; a CSV calls it <code>integral</code>); it is
+          rounded to the nearest whole number.
         </p>
         <div class="spectra">
           <div class="spectrum" data-spectrum="carbon" data-kind="carbon" data-title="13C"></div>
           <div class="spectrum" data-spectrum="dept135" data-kind="dept" data-title="DEPT-135"></div>
           <div class="spectrum" data-spectrum="dept90" data-kind="dept" data-title="DEPT-90"></div>
+          <div class="spectrum" data-spectrum="proton" data-kind="proton" data-title="1H"></div>
         </div>
         <button type="button" id="check-button">Read spectra</button>
         <p id="spectra-error" class="error" role="alert" hidden></p>
@@ -66,6 +69,17 @@
             </table>
           </div>
         </div>
+        <div id="protons" hidden>
+          <h3>1H peaks as ARISE reads them</h3>
+          <div class="table-scroll">
+            <table id="protons-table">
+              <thead>
+                <tr><th scope="col">#</th><th scope="col">Shift (ppm)</th><th scope="col">Protons</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
       </section>
 
       <!-- 3. Groups -->
@@ -74,6 +88,9 @@
         <p class="hint">
           Suggestions never remove a candidate. Only a group you mark <em>present</em> or
           <em>absent</em> is used: candidates that contradict it are eliminated, with the reason.
+          A group with 1H evidence can also be marked <em>likely</em>: candidates without it go to
+          the back burner instead. 1H suggestions come only from methoxy and benzene-ring windows
+          for now, each with how often such a peak means the group in nmrshiftdb2.
         </p>
         <label class="check">
           <input type="checkbox" id="use-dept" checked />

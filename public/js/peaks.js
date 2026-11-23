@@ -13,7 +13,8 @@ export class PeakEntryError extends Error {
 /**
  * The CSV text of table rows [{shift, intensity}] in ARISE's peak-list format. Empty rows are
  * skipped. `kind` "carbon": intensities are optional, but all or none. `kind` "dept": every
- * row needs one (its sign is the phase).
+ * row needs one (its sign is the phase). `kind` "proton": the second column is the integral
+ * as a number of protons, optional, all or none (column `integral`).
  */
 export function tableToCsv(rows, kind) {
   const filled = [];
@@ -39,7 +40,8 @@ export function tableToCsv(rows, kind) {
           : `row ${missing.number} has no intensity; give every row an intensity or none`,
       );
     }
-    return "shift_ppm,intensity\n" + filled.map((r) => `${r.shift},${r.intensity}\n`).join("");
+    const column = kind === "proton" ? "integral" : "intensity";
+    return `shift_ppm,${column}\n` + filled.map((r) => `${r.shift},${r.intensity}\n`).join("");
   }
   if (withIntensity.length > 0) {
     const missing = filled.find((row) => row.intensity === "");
@@ -49,8 +51,8 @@ export function tableToCsv(rows, kind) {
 }
 
 /**
- * The engine's {format, text} for one spectrum entry, or null for a DEPT spectrum that was
- * not recorded. `entry.mode` is "paste" (entry.text), "upload" (entry.fileText, the file's
+ * The engine's {format, text} for one spectrum entry, or null for a DEPT or 1H spectrum that
+ * was not recorded. `entry.mode` is "paste" (entry.text), "upload" (entry.fileText, the file's
  * text or null), "table" (entry.rows) or "none" (DEPT only).
  */
 export function spectrumFrom(entry, kind) {

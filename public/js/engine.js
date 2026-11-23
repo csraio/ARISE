@@ -26,8 +26,8 @@ export function parseAnswer(text) {
 /**
  * Wraps an instantiated engine module (the object createAriseEngine resolves to).
  *
- * Spectra are {carbon, dept135, dept90}; each spectrum is {format: "csv" | "pasted", text},
- * and dept135/dept90 are null when not recorded.
+ * Spectra are {carbon, dept135, dept90, proton}; each spectrum is {format: "csv" | "pasted",
+ * text}, and dept135/dept90/proton are null when not recorded.
  */
 export function wrapEngine(module) {
   return {
@@ -43,13 +43,20 @@ export function wrapEngine(module) {
     readSpectra(spectra) {
       return parseAnswer(module.readSpectra(spectra));
     },
-    /** Group suggestions with their evidence: [{group, evidence: [...]}]. */
+    /** The 1H peaks as read: [{shift, protons}], or null without a 1H spectrum. */
+    readProtons(spectra) {
+      return parseAnswer(module.readProtons(spectra));
+    },
+    /** Group suggestions with their 13C and 1H evidence: [{group, evidence: [...]}]. */
     suggest(spectra, useDept) {
       return parseAnswer(module.suggest(spectra, useDept));
     },
-    /** The cleaned PubChem list, ranked: {formula, rows, removed, candidates}. */
-    rank({ formula, pubchemCsv, spectra, present, absent, useDept }) {
-      return parseAnswer(module.rank(formula, pubchemCsv, spectra, present, absent, useDept));
+    /**
+     * The cleaned PubChem list, ranked: {formula, rows, removed, candidates}. `likely` are
+     * groups confirmed from 1H evidence only: candidates without them are back-burnered.
+     */
+    rank({ formula, pubchemCsv, spectra, present, absent, likely = [], useDept }) {
+      return parseAnswer(module.rank(formula, pubchemCsv, spectra, present, absent, likely, useDept));
     },
   };
 }

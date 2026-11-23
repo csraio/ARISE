@@ -11,10 +11,13 @@
 #include "arise/core/formula.hpp"
 #include "arise/filter/carbon_fit.hpp"
 #include "arise/filter/groups.hpp"
+#include "arise/filter/proton_groups.hpp"
 #include "arise/io/carbon_csv.hpp"
 #include "arise/io/pasted_peaks.hpp"
+#include "arise/io/peak_csv.hpp"
 #include "arise/io/pubchem.hpp"
 #include "arise/nmr1d/dept.hpp"
+#include "group_shifts.hpp"
 #include "pubchem_fixture.hpp"
 #include "reference_fixtures.hpp"
 #include "test_molecules.hpp"
@@ -47,6 +50,8 @@ using arise::pipeline::TextFormat;
 using arise::test::compound_cid;
 using arise::test::compound_formula;
 using arise::test::compound_smiles;
+
+constexpr arise::filter::ProtonOptions kProtonDefaults{};
 
 // ---- the benchmark case as the chemist would enter it ----------------------------
 
@@ -251,9 +256,9 @@ TEST(PipelineSuggest, IsSuggestGroupsWithTheMeasuredWindows) {
     ASSERT_TRUE(peaks.ok() && windows.ok());
     for (const bool use_dept : {true, false}) {
         const SuggestOptions options{.use_dept = use_dept};
-        const auto suggestions = suggest(spectra, options);
+        const auto suggestions = suggest(spectra, options, kProtonDefaults);
         ASSERT_TRUE(suggestions.ok()) << suggestions.error().message;
-        EXPECT_EQ(suggestions.value(),
+        EXPECT_EQ(suggestions.value().carbon,
                   arise::filter::suggest_groups(peaks.value(), windows.value(), options));
     }
 }
@@ -261,7 +266,8 @@ TEST(PipelineSuggest, IsSuggestGroupsWithTheMeasuredWindows) {
 TEST(PipelineSuggest, PassesSpectrumErrorsOn) {
     auto spectra = pasted_spectra(benchmark_case());
     spectra.carbon.text.clear();
-    const auto suggestions = suggest(spectra, {});
+    const SuggestOptions options;
+    const auto suggestions = suggest(spectra, options, kProtonDefaults);
     ASSERT_FALSE(suggestions.ok());
     EXPECT_TRUE(suggestions.error().message.starts_with("13C spectrum"))
         << suggestions.error().message;
@@ -558,6 +564,103 @@ TEST(PipelineRank, ACandidateWithoutTheLikelyGroupIsBackBurneredNotEliminated) {
     // Methyl formate has the group: its fit stands alone, and it ranks first.
     EXPECT_EQ(ranking.value().candidates.front().cid,
               static_cast<std::uint64_t>(compound_cid("Methyl formate")));
+}
+
+// ---- 1H -----------------------------------------------------------------------------
+
+// The first record of the nmrshiftdb2 1H extract whose molecule has a methoxy group and a
+// benzene ring (a rule, not a chosen record), as the 1H list a chemist would paste: one line
+// per carbon with an assigned 1H shift, "shift<TAB>H count".
+struct ProtonCase {
+    long long id = 0;
+    std::string pasted;
+};
+
+ProtonCase methoxy_benzene_case() {
+    static const std::string extract = arise::test::join_chunks(arise::test::kNmrshiftdb1hChunks);
+    for (const auto& record : arise::tools::parse_shift_extract(extract)) {
+        const auto molecule = arise::chem::parse_smiles(record.smiles);
+        if (!molecule.ok() || molecule.value().atoms().size() != record.shifts.size() ||
+            arise::chem::count_group(molecule.value(), arise::chem::Group::Methoxy) == 0 ||
+            arise::chem::count_group(molecule.value(), arise::chem::Group::BenzeneRing) == 0) {
+            continue;
+        }
+        ProtonCase c{.id = record.id, .pasted = {}};
+        for (std::size_t atom = 0; atom < record.shifts.size(); ++atom) {
+            const auto& shift = record.shifts[atom];
+            if (shift.has_value()) {
+                c.pasted += std::to_string(*shift) + "\t" +
+                            std::to_string(molecule.value().hydrogen_count(atom)) + "\n";
+            }
+        }
+        return c;
+    }
+    ADD_FAILURE() << "no methoxy benzene record in the 1H extract";
+    return {};
+}
+
+SpectraText with_protons(const std::string& pasted) {
+    auto spectra = some_spectrum();
+    spectra.proton = SpectrumText{.format = TextFormat::Pasted, .text = pasted};
+    return spectra;
+}
+
+TEST(PipelineReadProtons, NoProtonSpectrumIsNone) {
+    const auto protons = arise::pipeline::read_protons(some_spectrum());
+    ASSERT_TRUE(protons.ok()) << protons.error().message;
+    EXPECT_FALSE(protons.value().has_value());
+}
+
+TEST(PipelineReadProtons, CsvAndPastedTextGiveTheSamePeaks) {
+    const auto c = methoxy_benzene_case();
+    std::string csv = "shift_ppm,integral\n" + c.pasted;
+    std::replace(csv.begin(), csv.end(), '\t', ',');
+    auto csv_spectra = some_spectrum();
+    csv_spectra.proton = SpectrumText{.format = TextFormat::Csv, .text = csv};
+    const auto pasted = arise::pipeline::read_protons(with_protons(c.pasted));
+    const auto from_csv = arise::pipeline::read_protons(csv_spectra);
+    ASSERT_TRUE(pasted.ok() && from_csv.ok());
+    ASSERT_TRUE(pasted.value().has_value());
+    EXPECT_EQ(pasted.value(), from_csv.value());
+    EXPECT_EQ(*pasted.value(), arise::io::parse_pasted_protons(c.pasted).value());
+}
+
+TEST(PipelineReadProtons, ErrorsNameTheSpectrum) {
+    const auto result = arise::pipeline::read_protons(with_protons("3,8\n"));
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.error().code, ErrorCode::ParseError);
+    EXPECT_TRUE(result.error().message.starts_with("1H spectrum: line 1"))
+        << result.error().message;
+}
+
+TEST(PipelineSuggest, MergesTheFilterFunctionsFor13CAnd1H) {
+    const auto c = methoxy_benzene_case();
+    const auto spectra = with_protons(c.pasted);
+    const auto suggestions = suggest(spectra, kDefaults, kProtonDefaults);
+    ASSERT_TRUE(suggestions.ok()) << suggestions.error().message;
+    const auto peaks = read_spectra(spectra);
+    const auto windows = arise::filter::measured_hallmark_windows();
+    const auto proton_windows = arise::filter::measured_proton_windows();
+    const auto protons = arise::io::parse_pasted_protons(c.pasted);
+    ASSERT_TRUE(peaks.ok() && windows.ok() && proton_windows.ok() && protons.ok());
+    EXPECT_EQ(suggestions.value().carbon,
+              arise::filter::suggest_groups(peaks.value(), windows.value(), kDefaults));
+    EXPECT_EQ(suggestions.value().proton,
+              arise::filter::suggest_groups_from_protons(protons.value(), proton_windows.value()));
+    // The record has both groups, and its own 1H spectrum suggests them.
+    std::vector<arise::chem::Group> from_1h;
+    for (const auto& s : suggestions.value().proton) {
+        from_1h.push_back(s.group);
+    }
+    EXPECT_EQ(from_1h, (std::vector<arise::chem::Group>{arise::chem::Group::BenzeneRing,
+                                                        arise::chem::Group::Methoxy}))
+        << "nmrshiftdb2 " << c.id;
+}
+
+TEST(PipelineSuggest, WithoutA1HSpectrumThereIsNo1HEvidence) {
+    const auto suggestions = suggest(some_spectrum(), kDefaults, kProtonDefaults);
+    ASSERT_TRUE(suggestions.ok()) << suggestions.error().message;
+    EXPECT_TRUE(suggestions.value().proton.empty());
 }
 
 // The whole committed search (9,989 cleaned candidates): rank must give exactly the

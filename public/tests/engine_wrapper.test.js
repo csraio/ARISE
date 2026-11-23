@@ -34,6 +34,7 @@ test("wrapEngine passes every argument through in order", () => {
     readSpectra: (...args) => (calls.push(["readSpectra", args]), "[]"),
     suggest: (...args) => (calls.push(["suggest", args]), "[]"),
     rank: (...args) => (calls.push(["rank", args]), '{"candidates":[]}'),
+    readProtons: (...args) => (calls.push(["readProtons", args]), "null"),
   };
   const engine = wrapEngine(module);
   const spectra = { carbon: { format: "pasted", text: "1" }, dept135: null, dept90: null };
@@ -48,17 +49,27 @@ test("wrapEngine passes every argument through in order", () => {
       spectra,
       present: ["p"],
       absent: ["a"],
+      likely: ["l"],
       useDept: true,
     }),
     { candidates: [] },
   );
+  assert.equal(engine.readProtons(spectra), null);
   assert.deepEqual(calls, [
     ["searchUrl", ["F"]],
     ["groupNames", []],
     ["readSpectra", [spectra]],
     ["suggest", [spectra, false]],
-    ["rank", ["F", "csv", spectra, ["p"], ["a"], true]],
+    ["rank", ["F", "csv", spectra, ["p"], ["a"], ["l"], true]],
+    ["readProtons", [spectra]],
   ]);
+});
+
+test("wrapEngine passes no likely groups when none are given", () => {
+  const calls = [];
+  const engine = wrapEngine({ rank: (...args) => (calls.push(args), '{"candidates":[]}') });
+  engine.rank({ formula: "F", pubchemCsv: "csv", spectra: {}, present: [], absent: [], useDept: false });
+  assert.deepEqual(calls[0][5], []);
 });
 
 test("wrapEngine throws the engine's errors", () => {
