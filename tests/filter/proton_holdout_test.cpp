@@ -116,8 +116,9 @@ TEST(GroupProtonHoldout, RoundOneWindowsHoldOnTheOddHalf) {
 #endif
     const auto windows = arise::filter::measured_proton_windows();
     ASSERT_TRUE(windows.ok()) << windows.error().message;
-    const auto records = arise::tools::parse_shift_extract(
-        arise::test::join_chunks(arise::test::kNmrshiftdb1hChunks));
+    // Named: the records view into this text (ShiftRecord::smiles), so it must outlive them.
+    const std::string extract = arise::test::join_chunks(arise::test::kNmrshiftdb1hChunks);
+    const auto records = arise::tools::parse_shift_extract(extract);
     std::size_t checked = 0;
     for (const auto& window : windows.value()) {
         if (window.round1) {
