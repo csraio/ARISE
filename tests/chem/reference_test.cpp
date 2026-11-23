@@ -1309,6 +1309,8 @@ TEST(Provenance, NoTestContainsASmilesLiteral) {
         {"filter/groups_test.cpp", "C=O"},
         {"filter/groups_test.cpp", "C#N"},
         {"filter/groups_test.cpp", "O-C"},
+        // The same hallmark name in a 1H window row ("O-C carbon (sp3)").
+        {"filter/proton_groups_test.cpp", "O-C"},
         // JSON's empty array, in the expected text of the web client's results.
         {"pipeline/json_test.cpp", "[]"},
         {"pipeline/json_test.cpp", ":[]"},

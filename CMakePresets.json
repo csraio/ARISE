@@ -85,7 +85,7 @@
       "hidden": true,
       "filter": {
         "exclude": {
-          "name": "^(BenchmarkReference\\.|PipelineReference\\.|Provenance\\.GroupProtonShiftsAreRecomputedFromTheExtract$|Provenance\\.GroupProtonShiftsMatchRdkitsMeasurement$|CarbonFitReference\\.|GroupSuggestionHoldout\\.|Reference\\.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth$|Provenance\\.GroupShiftsAreRecomputedFromTheExtract$|Provenance\\.HybridizationShiftsAreRecomputedFromTheExtract$|Reference\\.KeyAtomsMatchRdkitFragmentPatterns$|Reference\\.EveryOccurrenceHasItsHallmarksOnCarbon$)"
+          "name": "^(BenchmarkReference\\.|GroupProtonHoldout\\.|PipelineReference\\.|Provenance\\.GroupProtonShiftsAreRecomputedFromTheExtract$|Provenance\\.GroupProtonShiftsMatchRdkitsMeasurement$|CarbonFitReference\\.|GroupSuggestionHoldout\\.|Reference\\.AlwaysSplitCarbonsAreSeparatePeaksWhereNmrshiftdb2ListsBoth$|Provenance\\.GroupShiftsAreRecomputedFromTheExtract$|Provenance\\.HybridizationShiftsAreRecomputedFromTheExtract$|Reference\\.KeyAtomsMatchRdkitFragmentPatterns$|Reference\\.EveryOccurrenceHasItsHallmarksOnCarbon$)"
         }
       }
     },

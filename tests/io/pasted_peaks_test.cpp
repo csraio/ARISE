@@ -3,6 +3,7 @@
 #include "arise/core/error.hpp"
 #include "arise/core/units.hpp"
 #include "arise/io/carbon_csv.hpp"
+#include "arise/io/peak_csv.hpp"
 
 #include <gtest/gtest.h>
 
@@ -18,11 +19,16 @@ using arise::core::Ppm;
 using arise::io::CarbonPeak;
 using arise::io::DeptPeak;
 using arise::io::kMaxCarbonShift;
+using arise::io::kMaxProtonShift;
 using arise::io::kMinCarbonShift;
+using arise::io::kMinProtonShift;
+using arise::io::ObservedPeak;
 using arise::io::parse_carbon_csv;
 using arise::io::parse_dept_csv;
 using arise::io::parse_pasted_carbon;
 using arise::io::parse_pasted_dept;
+using arise::io::parse_pasted_protons;
+using arise::io::parse_peak_csv;
 
 // Asserts failure with the given code and that the message mentions every fragment.
 template <typename Parser>
@@ -202,6 +208,43 @@ TEST(PastedDept, NoPeaksIsAnEmptySpectrum) {
 
 TEST(PastedDept, AThirdColumnIsAnError) {
     expect_error(parse_pasted_dept, "29\t-850\t3\n", ErrorCode::ParseError, {"line 1"});
+}
+
+// ---- 1H ---------------------------------------------------------------------------
+
+TEST(PastedProtons, ReadsShiftsAndOptionalProtonCounts) {
+    const auto result = parse_pasted_protons("ppm\tH\n3.81\t3\n7.26\n1.25 6\n");
+    ASSERT_TRUE(result.ok()) << result.error().message;
+    const std::vector<ObservedPeak> expected{
+        {.shift = Ppm{3.81}, .integral = 3.0},
+        {.shift = Ppm{7.26}, .integral = std::nullopt},
+        {.shift = Ppm{1.25}, .integral = 6.0},
+    };
+    EXPECT_EQ(result.value(), expected);
+}
+
+TEST(PastedProtons, GivesTheSamePeaksAsTheCsvReader) {
+    const auto pasted = parse_pasted_protons("3.81\t3\n7.26\t5\n");
+    const auto csv = parse_peak_csv("shift_ppm,integral\n3.81,3\n7.26,5\n");
+    ASSERT_TRUE(pasted.ok()) << pasted.error().message;
+    ASSERT_TRUE(csv.ok()) << csv.error().message;
+    EXPECT_EQ(pasted.value(), csv.value());
+}
+
+TEST(PastedProtons, LimitsAreTheCsvReadersLimits) {
+    const auto edges = parse_pasted_protons("-10\n25\n");
+    ASSERT_TRUE(edges.ok()) << edges.error().message;
+    EXPECT_EQ(edges.value()[0].shift, kMinProtonShift);
+    EXPECT_EQ(edges.value()[1].shift, kMaxProtonShift);
+    expect_error(parse_pasted_protons, "3.8\n77.0\n", ErrorCode::OutOfRange, {"line 2"});
+    expect_error(parse_pasted_protons, "3.8\t0\n", ErrorCode::OutOfRange, {"line 1"});
+    expect_error(parse_pasted_protons, "3.8\t-2\n", ErrorCode::OutOfRange, {"line 1"});
+}
+
+TEST(PastedProtons, LayoutErrorsAreParseErrors) {
+    expect_error(parse_pasted_protons, "3,8\n", ErrorCode::ParseError, {"line 1"});
+    expect_error(parse_pasted_protons, "3.8\t3\ts\n", ErrorCode::ParseError, {"line 1"});
+    expect_error(parse_pasted_protons, "", ErrorCode::ParseError, {});
 }
 
 }  // namespace

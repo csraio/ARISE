@@ -204,8 +204,18 @@ windows are also measured independently with RDKit's fragment patterns (`measure
   right more often than not. The others are measured but not suggested; a later round enables
   any of them only if, on real PubChem searches, it keeps the true structure active and
   shrinks the active list, each signed off by the chemist.
-- A group confirmed from 1H evidence will put contradicting candidates on the back burner,
-  not eliminate them.
+- A group confirmed from 1H evidence puts contradicting candidates on the back burner, not
+  eliminates them (`filter::ConfirmedGroups::likely_present`); their 13C fit still runs, and
+  their tier is the worse of the two.
+- **Proton counts (the chemist's sign-off, 2026-11-23):** a peak's integral, entered as a
+  number of protons, counts as that number rounded to the nearest whole number, halves up,
+  at least 1 (the rule the exchangeable-proton count already uses;
+  `filter::proton_count`). A peak suggests a window only if it counts at least the window's
+  H count (CH3 3, CH2 2, CH 1), so overlapping peaks still match; a peak without an integral
+  matches on shift alone (`filter::suggest_groups_from_protons`).
+- **Hold-out** (`tests/filter/proton_holdout_test.cpp`, odd IDs): each round-1 window must
+  cover 98% of its key protons less three binomial standard errors, and keep its measured
+  precision less three standard errors; the test prints every rate.
 
 Columns: group, hallmark, H count, n carbons, molecules, min, 1st, 5th percentile, median,
 95th, 99th percentile, max, window low, window high (ppm), hits, true hits, precision,

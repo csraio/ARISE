@@ -4,7 +4,9 @@ add_executable(arise_filter_tests
     exchangeable_test.cpp
     groups_test.cpp
     holdout_test.cpp
-    hybridization_test.cpp)
+    hybridization_test.cpp
+    proton_groups_test.cpp
+    proton_holdout_test.cpp)
 
 target_link_libraries(arise_filter_tests
     PRIVATE

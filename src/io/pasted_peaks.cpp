@@ -3,6 +3,7 @@
 #include "arise/io/number.hpp"
 #include "carbon_rows.hpp"
 #include "csv_table.hpp"
+#include "proton_rows.hpp"
 #include "text_lines.hpp"
 
 #include <algorithm>
@@ -137,6 +138,17 @@ core::Result<std::vector<CarbonPeak>> parse_pasted_carbon(std::string_view text)
         return core::Error{
             .code = core::ErrorCode::ParseError,
             .message = "no 13C peaks: paste one shift per line",
+        };
+    }
+    return peaks;
+}
+
+core::Result<std::vector<ObservedPeak>> parse_pasted_protons(std::string_view text) {
+    auto peaks = read_pasted<ObservedPeak>(text, Intensity::Optional, detail::to_proton_peak);
+    if (peaks.ok() && peaks.value().empty()) {
+        return core::Error{
+            .code = core::ErrorCode::ParseError,
+            .message = "no 1H peaks: paste one shift per line",
         };
     }
     return peaks;

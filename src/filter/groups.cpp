@@ -413,14 +413,21 @@ std::string_view to_string(Tier tier) noexcept {
 
 core::Result<Verdict> check_confirmed_groups(const chem::Molecule& molecule,
                                              const ConfirmedGroups& confirmed) {
-    for (const auto group : confirmed.present) {
-        if (std::find(confirmed.absent.begin(), confirmed.absent.end(), group) !=
-            confirmed.absent.end()) {
-            return core::Error{
-                .code = core::ErrorCode::InvalidArgument,
-                .message =
-                    std::string{chem::to_string(group)} + " is confirmed both present and absent",
-            };
+    const auto contains = [](const std::vector<chem::Group>& groups, chem::Group group) {
+        return std::find(groups.begin(), groups.end(), group) != groups.end();
+    };
+    for (const auto& [list, how] : {
+             std::pair{&confirmed.present, "present"},
+             std::pair{&confirmed.likely_present, "likely present"},
+         }) {
+        for (const auto group : *list) {
+            if (contains(confirmed.absent, group)) {
+                return core::Error{
+                    .code = core::ErrorCode::InvalidArgument,
+                    .message = std::string{chem::to_string(group)} + " is confirmed both " + how +
+                               " and absent",
+                };
+            }
         }
     }
     Verdict verdict;
@@ -438,6 +445,16 @@ core::Result<Verdict> check_confirmed_groups(const chem::Molecule& molecule,
     }
     if (!verdict.reasons.empty()) {
         verdict.tier = Tier::Eliminated;
+    }
+    for (const auto group : confirmed.likely_present) {
+        if (!contains(confirmed.present, group) && chem::count_group(molecule, group) == 0) {
+            verdict.reasons.push_back(
+                "likely present (from 1H): " + std::string{chem::to_string(group)} +
+                "; the candidate has none");
+            if (verdict.tier == Tier::Active) {
+                verdict.tier = Tier::BackBurner;
+            }
+        }
     }
     return verdict;
 }

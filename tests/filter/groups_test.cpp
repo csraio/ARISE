@@ -516,6 +516,62 @@ TEST(ConfirmedGroups, GroupConfirmedBothPresentAndAbsentIsAnError) {
     EXPECT_EQ(result.error().message, "carboxylic ester is confirmed both present and absent");
 }
 
+// A group confirmed from 1H evidence is soft (the chemist's decision, 2026-11-22): a candidate
+// without it goes to the back burner, never eliminated.
+TEST(ConfirmedGroups, LikelyGroupBackBurnersCandidatesWithoutIt) {
+    const ConfirmedGroups likely_methoxy{
+        .present = {},
+        .absent = {},
+        .likely_present = {Group::Methoxy},
+    };
+    EXPECT_EQ(verdict(compound_smiles("Methoxyacetone (atom order 2)"), likely_methoxy),
+              arise::filter::Verdict{});
+    const auto ethyl_acetate =
+        verdict(compound_smiles("Ethyl Acetate (atom order 2)"), likely_methoxy);
+    EXPECT_EQ(ethyl_acetate.tier, Tier::BackBurner);
+    EXPECT_EQ(
+        ethyl_acetate.reasons,
+        std::vector<std::string>{"likely present (from 1H): methoxy; the candidate has none"});
+}
+
+TEST(ConfirmedGroups, AHardViolationStillEliminatesNextToALikelyOne) {
+    const ConfirmedGroups confirmed{
+        .present = {Group::Alcohol},
+        .absent = {},
+        .likely_present = {Group::Methoxy},
+    };
+    const auto result = verdict(compound_smiles("Ethyl Acetate (atom order 2)"), confirmed);
+    EXPECT_EQ(result.tier, Tier::Eliminated);
+    EXPECT_EQ(result.reasons, (std::vector<std::string>{
+                                  "confirmed present: alcohol; the candidate has none",
+                                  "likely present (from 1H): methoxy; the candidate has none",
+                              }));
+}
+
+TEST(ConfirmedGroups, AGroupBothPresentAndLikelyCountsAsPresent) {
+    const ConfirmedGroups both{
+        .present = {Group::Methoxy},
+        .absent = {},
+        .likely_present = {Group::Methoxy},
+    };
+    const auto result = verdict(compound_smiles("Ethyl Acetate (atom order 2)"), both);
+    EXPECT_EQ(result.tier, Tier::Eliminated);
+    EXPECT_EQ(result.reasons,
+              std::vector<std::string>{"confirmed present: methoxy; the candidate has none"});
+}
+
+TEST(ConfirmedGroups, AGroupLikelyAndAbsentIsAnError) {
+    const auto molecule =
+        arise::chem::parse_smiles(compound_smiles("Ethyl Acetate (atom order 2)"));
+    ASSERT_TRUE(molecule.ok());
+    const auto result = arise::filter::check_confirmed_groups(
+        molecule.value(),
+        {.present = {}, .absent = {Group::Methoxy}, .likely_present = {Group::Methoxy}});
+    ASSERT_FALSE(result.ok());
+    EXPECT_EQ(result.error().code, ErrorCode::InvalidArgument);
+    EXPECT_EQ(result.error().message, "methoxy is confirmed both likely present and absent");
+}
+
 TEST(Tier, Names) {
     EXPECT_EQ(arise::filter::to_string(Tier::Active), "active");
     EXPECT_EQ(arise::filter::to_string(Tier::BackBurner), "back-burner");
