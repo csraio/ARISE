@@ -240,3 +240,5 @@ valence	[SiH4-](CC[N+](C)(C)C)	accept	hypervalent-charged: RDKit's valence lists
 spec	C(C[NH3+])C[O-]	fr_Al_OH	alkoxide-as-alcohol: an O- on carbon counts as the OH of its neutral parent (user decision 2026-11-01); fr_Al_OH needs the H
 spec	CCC(=[O+][O-])C	fr_ketone	carbonyl-oxide: C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O
 bmrb	bmse000091:1	exchangeable	bmrb-assignment: BMRB assigns 1H peaks that have HSQC cross peaks (4.27, 4.40, 5.87 and 7.85 ppm) to H on O or N: the entry's assignment contradicts its own HSQC list
+spec	COC	fr_methoxy	methoxy-count: fr_methoxy counts the O-CH3 atom sets of dimethyl ether once; ARISE counts each OCH3 (user decision 2026-11-22)
+chebi	86951	33853	acetylated-phenol: ChEBI files this diacetate under its parent syringaresinol, a phenol; both ring OH are acetylated, so no phenol remains (row 12 needs an OH on the aromatic ring)

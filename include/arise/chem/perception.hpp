@@ -140,6 +140,7 @@ enum class Group : std::uint8_t {
     FuranRing,            // aromatic five-membered ring with one O
     PyrroleRing,          // aromatic five-membered ring with one N
     ThiopheneRing,        // aromatic five-membered ring with one S
+    Methoxy,              // CH3-O bonded to one other carbon, per OCH3 (2026-11-22)
 };
 
 /// All groups, in enum order.
@@ -153,6 +154,7 @@ inline constexpr std::array kAllGroups{
     Group::Imine,           Group::Oxime,          Group::Nitrile,
     Group::Alkene,          Group::BenzeneRing,    Group::PyridineRing,
     Group::FuranRing,       Group::PyrroleRing,    Group::ThiopheneRing,
+    Group::Methoxy,
 };
 
 /// "carboxylic acid", "aldehyde", ...

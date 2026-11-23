@@ -110,6 +110,19 @@ std::vector<std::string_view> split(std::string_view text, char separator) {
     }
 }
 
+// `text` split at every `separator` (a string of one or more characters).
+std::vector<std::string_view> split_on(std::string_view text, std::string_view separator) {
+    std::vector<std::string_view> parts;
+    while (true) {
+        const auto end = text.find(separator);
+        parts.push_back(text.substr(0, end));
+        if (end == std::string_view::npos) {
+            return parts;
+        }
+        text = text.substr(end + separator.size());
+    }
+}
+
 std::string_view trim(std::string_view text) {
     const auto first = text.find_first_not_of(' ');
     if (first == std::string_view::npos) {
@@ -432,6 +445,7 @@ const std::vector<FragmentCheck>& fragment_checks() {
         {.fragment = "fr_pyridine", .groups = {Group::PyridineRing}},
         {.fragment = "fr_furan", .groups = {Group::FuranRing}},
         {.fragment = "fr_thiophene", .groups = {Group::ThiopheneRing}},
+        {.fragment = "fr_methoxy", .groups = {Group::Methoxy}},
     };
     return checks;
 }
@@ -539,6 +553,9 @@ const std::vector<ChebiCheck>& chebi_checks() {
         {.chebi = 24129, .groups = {Group::FuranRing}, .rdkit_ring = "fr_furan"},
         {.chebi = 26455, .groups = {Group::PyrroleRing}, .rdkit_ring = "pyrrole_ring"},
         {.chebi = 26961, .groups = {Group::ThiopheneRing}, .rdkit_ring = "fr_thiophene"},
+        // Methoxy has no ChEBI class; two narrower classes each imply it (2026-11-22).
+        {.chebi = 25248, .groups = {Group::Methoxy}, .rdkit_ring = {}},
+        {.chebi = 51683, .groups = {Group::Methoxy}, .rdkit_ring = {}},
     };
     return checks;
 }
@@ -555,11 +572,16 @@ TEST(Reference, ChebiChecksCoverEveryGroup) {
 }
 
 // The signed-off group table of docs/chem_group_definitions.md: row number (the Group's
-// position in kAllGroups, from 1), group name and the "CHEBI:<id> <name>" cell.
+// position in kAllGroups, from 1), group name and the "CHEBI:<id> <name>" items of its
+// ChEBI cell (several, separated by "; ", where narrower classes each imply the group).
+struct ChebiItem {
+    int chebi = 0;
+    std::string_view name;
+};
+
 struct DefinitionRow {
     std::string_view group;
-    int chebi = 0;
-    std::string_view chebi_name;
+    std::vector<ChebiItem> classes;
 };
 
 std::map<int, DefinitionRow> definition_rows() {
@@ -574,13 +596,17 @@ std::map<int, DefinitionRow> definition_rows() {
         if (number.size() != 1 || !chebi.starts_with("CHEBI:")) {
             continue;  // header or separator row
         }
-        const auto space = chebi.find(' ');
-        const auto id = integers(chebi.substr(6, space - 6));
-        rows[number.front()] = {
-            .group = trim(cells[2]),
-            .chebi = id.size() == 1 ? id.front() : -1,
-            .chebi_name = chebi.substr(space + 1),
-        };
+        DefinitionRow row{.group = trim(cells[2]), .classes = {}};
+        for (const auto item : split_on(chebi, "; ")) {
+            const auto space = item.find(' ');
+            const auto id = integers(item.substr(6, space - 6));
+            row.classes.push_back({
+                .chebi = id.size() == 1 && item.starts_with("CHEBI:") ? id.front() : -1,
+                .name =
+                    space == std::string_view::npos ? std::string_view{} : item.substr(space + 1),
+            });
+        }
+        rows[number.front()] = row;
     }
     return rows;
 }
@@ -603,29 +629,37 @@ std::map<int, std::string_view> chebi_names() {
     return names;
 }
 
-// What is wrong with the ChEBI class of `group` (row `number` of the doc table); empty if
-// nothing. The class ID is typed twice by hand (the C++ table and the doc), and the doc
-// pairs it with a name, so a typo in any of them disagrees with ChEBI's ontology.
+// What is wrong with the ChEBI classes of `group` (row `number` of the doc table); empty if
+// nothing. The class IDs are typed twice by hand (the C++ table and the doc), and the doc
+// pairs each with a name, so a typo in any of them disagrees with ChEBI's ontology.
 std::string chebi_class_problem(Group group, const DefinitionRow& row,
                                 const std::map<int, std::string_view>& names) {
-    const auto check = std::find_if(chebi_checks().begin(), chebi_checks().end(),
-                                    [&](const ChebiCheck& c) { return c.groups.front() == group; });
     std::string problem;
     if (!lowercase(row.group).starts_with(arise::chem::to_string(group))) {
         problem.append(" doc row names ").append(row.group);
     }
-    if (check == chebi_checks().end() || check->chebi != row.chebi) {
-        problem.append(" C++ and doc ChEBI IDs differ");
+    std::vector<int> ours;
+    for (const auto& check : chebi_checks()) {
+        if (check.groups.front() == group) {
+            ours.push_back(check.chebi);
+        }
     }
-    const auto name = names.find(row.chebi);
-    if (name == names.end() || name->second != row.chebi_name) {
-        problem.append(" doc says CHEBI:")
-            .append(std::to_string(row.chebi))
-            .append(" is '")
-            .append(row.chebi_name)
-            .append("', ChEBI says '")
-            .append(name == names.end() ? std::string_view{"(not listed)"} : name->second)
-            .append("'");
+    std::vector<int> documented;
+    for (const auto& item : row.classes) {
+        documented.push_back(item.chebi);
+        const auto name = names.find(item.chebi);
+        if (name == names.end() || name->second != item.name) {
+            problem.append(" doc says CHEBI:")
+                .append(std::to_string(item.chebi))
+                .append(" is '")
+                .append(item.name)
+                .append("', ChEBI says '")
+                .append(name == names.end() ? std::string_view{"(not listed)"} : name->second)
+                .append("'");
+        }
+    }
+    if (ours != documented) {
+        problem.append(" C++ and doc ChEBI IDs differ");
     }
     return problem;
 }
