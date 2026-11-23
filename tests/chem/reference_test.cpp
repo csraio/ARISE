@@ -1967,8 +1967,9 @@ TEST(Provenance, GroupProtonShiftsMatchRdkitsMeasurement) {
     // leaving out the lines whose aromaticity the two models see differently ("proton-skip",
     // as every RDKit comparison does). ARISE's tool, on the same lines, must agree.
 #ifdef __EMSCRIPTEN__
+    // Skipped at run time, not compiled out, so its helpers stay used under wasm.
     GTEST_SKIP() << "measured offline; far slower under wasm checks";
-#else
+#endif
     const auto rdkit = rdkit_proton_rows();
     EXPECT_EQ(rdkit.size(), 2U);
     const auto extract = arise::test::join_chunks(arise::test::kNmrshiftdb1hChunks);
@@ -1993,7 +1994,6 @@ TEST(Provenance, GroupProtonShiftsMatchRdkitsMeasurement) {
     }
     EXPECT_EQ(problems, std::vector<std::string>{});
     EXPECT_EQ(matched, rdkit.size());
-#endif
 }
 
 TEST(Provenance, DocumentedGroupProtonShiftsAreTheMeasuredOnes) {
