@@ -1577,6 +1577,38 @@ Occurrences find_nitrogen_bond_group(const Molecule& molecule, const Aromaticity
 }
 
 // Aromatic rings of `size` with `hetero` (C for all-carbon); key atoms the ring carbons.
+// Methoxy (the chemist's definition, 2026-11-22): a neutral CH3 whose one heavy neighbour is
+// a neutral O without H, single-bonded to it and to exactly one other carbon (aliphatic,
+// aryl or carbonyl). One occurrence per CH3; its key atom is that CH3.
+Occurrences find_methoxy(const Molecule& molecule) {
+    const auto& atoms = molecule.atoms();
+    const auto single_to = [&](std::size_t from, std::size_t to) {
+        const auto bond = find_bond(molecule, from, to);
+        return bond.has_value() && order_of(molecule, *bond) == BondOrder::Single;
+    };
+    Occurrences found;
+    for (std::size_t c = 0; c < atoms.size(); ++c) {
+        if (!is_element(molecule, c, Element::C) || atoms[c].charge != 0 ||
+            molecule.hydrogen_count(c) != 3) {
+            continue;
+        }
+        const auto oxygens = heavy_neighbors(molecule, c);
+        if (oxygens.size() != 1 || !is_element(molecule, oxygens[0], Element::O)) {
+            continue;
+        }
+        const auto o = oxygens[0];
+        if (atoms[o].charge != 0 || molecule.hydrogen_count(o) != 0 || !single_to(c, o)) {
+            continue;
+        }
+        const auto others = heavy_neighbors(molecule, o, c);
+        if (others.size() == 1 && is_element(molecule, others[0], Element::C) &&
+            single_to(o, others[0])) {
+            found.push_back(occurrence({{c}}));
+        }
+    }
+    return found;
+}
+
 Occurrences find_rings(const Molecule& molecule, const Aromaticity& aromaticity, std::size_t size,
                        Element hetero) {
     Occurrences found;
@@ -1777,6 +1809,8 @@ std::string_view to_string(Group group) noexcept {
             return "pyrrole ring";
         case Group::ThiopheneRing:
             return "thiophene ring";
+        case Group::Methoxy:
+            return "methoxy";
     }
     return "?";
 }
@@ -1792,6 +1826,7 @@ std::span<const std::string_view> hallmarks(Group group) noexcept {
     static constexpr std::array<std::string_view, 1> kNitrile{"C#N carbon"};
     static constexpr std::array<std::string_view, 1> kAlkene{"C=C carbon"};
     static constexpr std::array<std::string_view, 1> kRing{"ring carbons"};
+    static constexpr std::array<std::string_view, 1> kMethoxy{"O-CH3 carbon"};
     switch (group) {
         case Group::CarboxylicAcid:
         case Group::Aldehyde:
@@ -1827,6 +1862,8 @@ std::span<const std::string_view> hallmarks(Group group) noexcept {
         case Group::PyrroleRing:
         case Group::ThiopheneRing:
             return kRing;
+        case Group::Methoxy:
+            return kMethoxy;
         case Group::Sulfonamide:
         case Group::Hydrazine:
         case Group::Hydroxylamine:
@@ -1883,6 +1920,8 @@ std::vector<GroupOccurrence> find_group(const Molecule& molecule, Group group) {
             return find_rings(molecule, aromaticity, 5, Element::N);
         case Group::ThiopheneRing:
             return find_rings(molecule, aromaticity, 5, Element::S);
+        case Group::Methoxy:
+            return find_methoxy(molecule);
     }
     return {};
 }

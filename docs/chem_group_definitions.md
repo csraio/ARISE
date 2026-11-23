@@ -63,6 +63,16 @@ or oxime a neutral N.
 | 25 | Furan ring | aromatic five-membered ring with one O | — | — | CHEBI:24129 furans | ring carbons |
 | 26 | Pyrrole ring | aromatic five-membered ring with one N | indoles | — | CHEBI:26455 pyrroles | ring carbons |
 | 27 | Thiophene ring | aromatic five-membered ring with one S | — | — | CHEBI:26961 thiophenes | ring carbons |
+| 28 | Methoxy | CH3 single-bonded to an O that is bonded to exactly one other carbon; per OCH3 | aryl and aliphatic OMe, methyl esters, methyl carbonates and carbamates | methanol, O–CH3 on N, Si, S or P | CHEBI:25248 methyl ester; CHEBI:51683 methoxybenzenes | O–CH3 carbon |
+
+**Methoxy (the chemist's decisions, 2026-11-22).** Added for 1H suggestions: a 3H singlet
+of an OCH3 is one of the clearest 1H signs of a group. Methyl esters count as methoxy (their
+OCH3 is the same signal); each OCH3 counts once, so dimethyl ether counts 2. ChEBI has no
+methoxy class, so two narrower ChEBI classes check it one way: whenever ChEBI asserts
+"methyl ester" (CHEBI:25248) or "methoxybenzenes" (CHEBI:51683), ARISE must find methoxy.
+RDKit's fr_methoxy (`[OX2](-[#6])-[CH3]`, "Includes esters. Includes OMe groups on aromatic
+rings.") checks it both ways; it counts dimethyl ether once (distinct atom sets), a
+difference of counting only.
 
 ## How the external checks map to the groups (user decisions, 2026-10-31)
 - **ChEBI parent classes.** ChEBI files carbamate and carbonate esters under carboxylic
@@ -78,7 +88,8 @@ or oxime a neutral N.
   PubChem and RDKit and requires the pattern to match the whole compound.
 - **RDKit fragments** are compared only where RDKit's published definition matches the
   group: fr_ketone, fr_aldehyde, fr_COO2 (acid), fr_ester, fr_Al_OH (alcohol + enol),
-  fr_phenol, fr_nitrile, fr_urea, fr_benzene, fr_pyridine, fr_furan, fr_thiophene.
+  fr_phenol, fr_nitrile, fr_urea, fr_benzene, fr_pyridine, fr_furan, fr_thiophene,
+  fr_methoxy (methoxy; added 2026-11-22).
 - **Oxime ethers** (C=N–O–C) get no group: their C=N carbon overlaps oximes' in
   nmrshiftdb2, so a separate group would not be told apart by shift. Measured by
   `scripts/build_reference_sets.py` (`measurements.tsv`; a test holds these rows to it):
@@ -171,11 +182,12 @@ per violated group. Nothing else eliminates.
 | furan ring | ring carbons | {C, CH} | 1755 | 361 | 61.2 | 96.1 | 104.1 | 134.2 | 158.9 | 163.7 | 167.0 |
 | pyrrole ring | ring carbons | {C, CH} | 2569 | 552 | 57.8 | 93.3 | 102.5 | 125.4 | 141.5 | 150.0 | 158.0 |
 | thiophene ring | ring carbons | {C, CH} | 1066 | 235 | 65.1 | 98.8 | 109.5 | 130.7 | 151.2 | 163.8 | 174.7 |
+| methoxy | O-CH3 carbon | {CH3} | 3423 | 2234 | 46.4 | 49.3 | 51.2 | 55.5 | 60.9 | 62.7 | 67.2 |
 
 ## Known differences from the external checks
 Every disagreement is listed by molecule in `tests/data/reference/known_differences.tsv`
 (hand-written; each row names its category). A listed row that starts agreeing fails the
-test, so the list cannot go stale. Categories (ChEBI release 256, 2,321 molecules; RDKit
+test, so the list cannot go stale. Categories (ChEBI release 256, 2,508 molecules; RDKit
 2025.09.3, 5,513 PubChem candidates; a test holds this table and these counts to the data
 files):
 
@@ -190,6 +202,7 @@ files):
 | bridged-benzene | 1 | RDKit | a bridged six-ring outside RDKit's smallest-ring set; ARISE finds the benzene |
 | ynol | 1 | RDKit | OH on an alkyne carbon: neither alcohol nor enol |
 | chebi-error | 12 | ChEBI | ChEBI asserts a group whose atoms the structure lacks (e.g. "amine" with no N) |
+| phenol-ester | 1 | ChEBI | ChEBI files an aryl acetate under phenols; phenol means an OH on the aromatic ring (row 12) |
 | oxime-ether | 11 | ChEBI | ChEBI calls oxime ethers oximes and ethers; ARISE assigns no group (user decision) |
 | tautomer | 10 | ChEBI | ChEBI classifies another tautomer (N-hydroxyguanidine, enol/keto forms, 4-iminopyridine) |
 | pyridone-scope | 5 | ChEBI | ring with N=C, two ring C=O, or a dihydro ring: outside row 13 |
@@ -212,6 +225,7 @@ files):
 | carbamic-acid | 1 | chem tests | fr_COO2 counts the C(=O)OH; a carboxylic acid needs carbon or H on the acyl side, and carbamic acids are excluded from row 8 |
 | carbonic-monoester | 1 | chem tests | one O is OH; a carbonate ester needs carbon on both O |
 | carbonyl-oxide | 1 | chem tests | C=[O+][O-] is a carbonyl oxide (Criegee intermediate), not a ketone or aldehyde; ARISE needs a neutral C=O |
+| methoxy-count | 1 | chem tests | fr_methoxy counts the O-CH3 atom sets of dimethyl ether once; ARISE counts each OCH3 (user decision 2026-11-22) |
 | conflicting-ring-bond | 1 | chem tests | the two ends of a ring closure give different bond orders, an error in OpenSMILES; RDKit takes one of them |
 | formaldehyde | 1 | chem tests | fr_aldehyde needs carbon on the carbonyl; formaldehyde is an aldehyde (user decision) |
 | formate | 1 | chem tests | fr_ester needs carbon on the acyl side; formates are esters (user decision) |

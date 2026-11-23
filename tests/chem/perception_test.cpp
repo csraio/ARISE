@@ -667,6 +667,28 @@ TEST(Groups, Ethers) {
     EXPECT_EQ(groups(compound_smiles("Furan"), Group::Ether), 0);  // furan O (user decision)
 }
 
+// Methoxy (the chemist's decisions, 2026-11-22): a CH3 single-bonded to an O that is bonded
+// to exactly one other carbon (aliphatic, aryl or carbonyl), counted per OCH3; it matches
+// RDKit's fr_methoxy, which also counts esters and aryl OMe.
+TEST(Groups, Methoxy) {
+    EXPECT_EQ(groups(compound_smiles("Anisole"), Group::Methoxy), 1);         // aryl OMe
+    EXPECT_EQ(groups(compound_smiles("Methoxyacetone"), Group::Methoxy), 1);  // aliphatic OMe
+    EXPECT_EQ(groups(compound_smiles("Methyl formate"), Group::Methoxy), 1);  // methyl ester
+    EXPECT_EQ(groups(compound_smiles("Dimethyl Carbonate"), Group::Methoxy), 2);
+    EXPECT_EQ(groups(compound_smiles("Methyl Carbamate"), Group::Methoxy), 1);
+    EXPECT_EQ(groups(compound_smiles("Dimethyl Ether"), Group::Methoxy), 2);  // per OCH3
+    EXPECT_EQ(groups(compound_smiles("Methanol"), Group::Methoxy), 0);  // O has no other carbon
+    EXPECT_EQ(groups(compound_smiles("Diethyl Ether"), Group::Methoxy), 0);  // no CH3 on O
+    EXPECT_EQ(groups(compound_smiles("Ethyl Acetate"), Group::Methoxy), 0);  // ethyl ester
+    EXPECT_EQ(groups(compound_smiles("N,O-Dimethylhydroxylamine"), Group::Methoxy),
+              0);  // the O's other atom is N
+    EXPECT_EQ(groups(compound_smiles("Silane, methoxytrimethyl-"), Group::Methoxy),
+              0);  // the O's other atom is Si
+    EXPECT_EQ(groups(compound_smiles("Thioanisole"), Group::Methoxy), 0);  // S, not O
+    EXPECT_EQ(groups(compound_smiles("Silane, methoxy-"), Group::Methoxy),
+              0);  // CH3-O-SiH3: the O's other atom is Si, and the SiH3 is not a methyl
+}
+
 TEST(Groups, NitrogenFamilies) {
     EXPECT_EQ(groups(compound_smiles("Methylamine"), Group::Amine), 1);
     EXPECT_EQ(groups(compound_smiles("Triethylamine"), Group::Amine), 1);
@@ -755,12 +777,12 @@ TEST(Perception, ReadsKeyC4H8O2StructuresAsPubChemWritesThem) {
         {
             .cid = "CID 11124",
             .carbon_classes = {1, 1, 1, 1},
-            .groups = {{Group::CarboxylicEster, 1}},
+            .groups = {{Group::CarboxylicEster, 1}, {Group::Methoxy, 1}},  // methyl ester
         },
         {
             .cid = "CID 22172",
             .carbon_classes = {1, 1, 1, 1},
-            .groups = {{Group::Ketone, 1}, {Group::Ether, 1}},
+            .groups = {{Group::Ketone, 1}, {Group::Ether, 1}, {Group::Methoxy, 1}},
         },
         {.cid = "CID 264", .carbon_classes = {1, 1, 1, 1}, .groups = {{Group::CarboxylicAcid, 1}}},
         {.cid = "CID 6590", .carbon_classes = {1, 1, 2}, .groups = {{Group::CarboxylicAcid, 1}}},
@@ -829,6 +851,8 @@ TEST(Groups, KeyAtomsCarryEachHallmark) {
               (Keys{{{1, 4}}}));
     EXPECT_EQ(key_atoms(compound_smiles("Ethanol"), Group::Alcohol), (Keys{{{1}}}));
     EXPECT_EQ(key_atoms(compound_smiles("Dimethyl Ether"), Group::Ether), (Keys{{{0, 2}}}));
+    // Methoxy: one occurrence per OCH3, its CH3 carbon the key atom.
+    EXPECT_EQ(key_atoms(compound_smiles("Dimethyl Ether"), Group::Methoxy), (Keys{{{0}}, {{2}}}));
     EXPECT_EQ(key_atoms(compound_smiles("Dimethylethylamine"), Group::Amine), (Keys{{{1, 3, 4}}}));
     EXPECT_EQ(key_atoms(compound_smiles("Acetonitrile"), Group::Nitrile), (Keys{{{1}}}));
     EXPECT_EQ(key_atoms(compound_smiles("Propylene"), Group::Alkene), (Keys{{{1, 2}}}));
@@ -849,7 +873,8 @@ TEST(Groups, NamesAreReadable) {
         EXPECT_TRUE(names.insert(name).second) << "duplicate name " << name;
     }
     EXPECT_EQ(arise::chem::to_string(Group::CarboxylicAcid), "carboxylic acid");
-    EXPECT_EQ(arise::chem::kAllGroups.size(), 27U);  // the signed-off definitions table
+    EXPECT_EQ(arise::chem::to_string(Group::Methoxy), "methoxy");
+    EXPECT_EQ(arise::chem::kAllGroups.size(), 28U);  // the signed-off definitions table
 }
 
 // ---- exchangeable hydrogens --------------------------------------------------------------

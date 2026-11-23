@@ -69,21 +69,29 @@ MAX_HEAVY_ATOMS = 25
 # FragmentDescriptors.csv) recorded for the oracle. Which ARISE groups each one is compared
 # with is decided in tests/chem/reference_test.cpp, where the definitions agree.
 FRAGMENTS = ["fr_ketone", "fr_aldehyde", "fr_COO2", "fr_ester", "fr_Al_OH", "fr_phenol",
-             "fr_nitrile", "fr_urea", "fr_benzene", "fr_pyridine", "fr_furan", "fr_thiophene"]
+             "fr_nitrile", "fr_urea", "fr_benzene", "fr_pyridine", "fr_furan", "fr_thiophene",
+             "fr_methoxy"]
 
 DEFINITIONS = REPO / "docs" / "chem_group_definitions.md"
 
 
 def definition_classes():
-    """The ChEBI class of each row of the signed-off groups table, in row order. Read from
-    the doc so the IDs are typed in one place only (tests compare the C++ table with it)."""
+    """The ChEBI classes of the signed-off groups table, in row order (a row may name several,
+    "CHEBI:<id> <name>; CHEBI:<id> <name>", e.g. methoxy). Read from the doc so the IDs are
+    typed in one place only (tests compare the C++ table with it)."""
     classes = []
+    rows = 0
     for line in DEFINITIONS.read_text(encoding="utf-8").splitlines():
-        match = re.match(r"\|\s*(\d+)\s*\|.*\|\s*CHEBI:(\d+) [^|]*\|", line)
-        if match:
-            if int(match.group(1)) != len(classes) + 1:
-                sys.exit(f"{DEFINITIONS}: groups table row {match.group(1)} out of order")
-            classes.append(int(match.group(2)))
+        cells = line.split("|")
+        if len(cells) != 9 or not re.fullmatch(r"\s*\d+\s*", cells[1]):
+            continue  # not a data row of the 7-column groups table
+        ids = re.findall(r"CHEBI:(\d+) ", cells[6])
+        if not ids:
+            continue
+        rows += 1
+        if int(cells[1]) != rows:
+            sys.exit(f"{DEFINITIONS}: groups table row {cells[1].strip()} out of order")
+        classes.extend(int(i) for i in ids)
     if not classes:
         sys.exit(f"{DEFINITIONS}: no groups table found")
     return classes
@@ -684,6 +692,8 @@ KEY_ATOMS = {
     "fr_pyridine": [("ring carbons", [1, 2, 3, 4, 5])],
     "fr_furan": [("ring carbons", [1, 2, 3, 4])],
     "fr_thiophene": [("ring carbons", [1, 2, 3, 4])],
+    # fr_methoxy [OX2](-[#6])-[CH3]: the CH3 carbon is atom 2.
+    "fr_methoxy": [("O-CH3 carbon", [2])],
 }
 
 
@@ -1086,6 +1096,10 @@ TEST_COMPOUNDS = [
     ('Methylselenol', 440764, None),
     ('Ethane', 6324, None),
     ('Methanol', 887, None),
+    ('Thioanisole', 7520, None),
+    ('Silane, methoxytrimethyl-', 15771, None),
+    ('N,O-Dimethylhydroxylamine', 14232, None),
+    ('Silane, methoxy-', 137466, None),
     ('Hydrogen Cyanide', 768, None),
     ('Methyl Ethyl Ketone', 6569, None),
     ('Butyric Acid', 264, None),
