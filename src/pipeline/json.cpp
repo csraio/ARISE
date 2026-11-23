@@ -130,6 +130,11 @@ std::string to_json(const core::Error& error) {
            ",\"message\":" + json_string(error.message) + "}}";
 }
 
+std::string groups_json() {
+    return array(chem::kAllGroups,
+                 [](chem::Group group) { return json_string(chem::to_string(group)); });
+}
+
 std::string url_json(std::string_view url) {
     return "{\"url\":" + json_string(url) + "}";
 }

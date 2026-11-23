@@ -31,6 +31,7 @@ add_compile_definitions(
 
 add_subdirectory(third-party)
 add_subdirectory(src)
+add_subdirectory(apps)  # app layers; apps/wasm only under Emscripten
 
 if(ARISE_BUILD_TESTS)
     enable_testing()

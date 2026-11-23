@@ -32,6 +32,11 @@ tidy_version=$(clang-tidy --version)  # captured so a broken binary fails here
 echo "run_clang_tidy: $(echo "$tidy_version" | grep -i 'version' | sed -n 1p)"
 failures=0
 for file in $files; do
+    # apps/wasm builds only with Emscripten, whose headers the native compile database
+    # lacks; CI's web job compiles it with every warning as an error instead.
+    case $file in
+        apps/wasm/*) continue ;;
+    esac
     # shellcheck disable=SC2086
     if ! clang-tidy --quiet -p "$build_dir" $extra_args "$file"; then
         failures=$((failures + 1))

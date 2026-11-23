@@ -266,6 +266,19 @@ TEST(PipelineSuggest, PassesSpectrumErrorsOn) {
         << suggestions.error().message;
 }
 
+// ---- text formats -----------------------------------------------------------------
+
+TEST(PipelineTextFormat, NamesReadBack) {
+    for (const auto format : {TextFormat::Csv, TextFormat::Pasted}) {
+        EXPECT_EQ(arise::pipeline::text_format_named(arise::pipeline::to_string(format)),
+                  std::optional{format});
+    }
+    EXPECT_EQ(arise::pipeline::to_string(TextFormat::Csv), "csv");
+    EXPECT_EQ(arise::pipeline::to_string(TextFormat::Pasted), "pasted");
+    EXPECT_EQ(arise::pipeline::text_format_named("CSV"), std::nullopt);
+    EXPECT_EQ(arise::pipeline::text_format_named(""), std::nullopt);
+}
+
 // ---- group_named ------------------------------------------------------------------
 
 TEST(PipelineGroupNamed, ReadsEveryGroupByItsName) {

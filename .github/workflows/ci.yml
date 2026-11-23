@@ -80,6 +80,35 @@ jobs:
           cmake --build --preset wasm
           ctest --preset wasm
 
+  web:
+    # The web client's engine (apps/wasm, release) and the page's JavaScript, tested with
+    # Node's built-in runner (public/tests). Also the only build of apps/wasm, compiled with
+    # every warning as an error (clang-tidy cannot see Emscripten's headers).
+    name: web (engine + Node tests)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+      - name: Cache emsdk
+        uses: actions/cache@v4
+        with:
+          path: ~/.local/share/emsdk
+          key: emsdk-${{ runner.os }}-${{ hashFiles('scripts/install_emsdk.sh') }}
+
+      - name: Install pinned emsdk
+        run: sh scripts/install_emsdk.sh
+
+      - name: Build the engine, run the Node tests
+        run: |
+          . "$HOME/.local/share/emsdk/emsdk_env.sh"
+          cmake --preset web
+          cmake --build --preset web
+          "$EMSDK_NODE" --test public/tests/*.test.js
+
   benchmark:
     # Plan 3d: times cleaning + pruning of the 10,000+-row benchmark case, natively and in
     # WebAssembly, and fails when the slowest scenario's median total is over 300 ms: a

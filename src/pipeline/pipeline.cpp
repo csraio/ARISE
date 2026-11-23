@@ -134,6 +134,25 @@ core::Result<std::vector<filter::GroupSuggestion>> suggest(const SpectraText& sp
     return filter::suggest_groups(peaks.value(), windows.value(), options);
 }
 
+std::string_view to_string(TextFormat format) noexcept {
+    switch (format) {
+        case TextFormat::Csv:
+            return "csv";
+        case TextFormat::Pasted:
+            return "pasted";
+    }
+    return "";
+}
+
+std::optional<TextFormat> text_format_named(std::string_view name) {
+    for (const auto format : {TextFormat::Csv, TextFormat::Pasted}) {
+        if (to_string(format) == name) {
+            return format;
+        }
+    }
+    return std::nullopt;
+}
+
 std::optional<chem::Group> group_named(std::string_view name) {
     for (const auto group : chem::kAllGroups) {
         if (chem::to_string(group) == name) {

@@ -27,6 +27,9 @@ namespace arise::pipeline {
 /// {"url":"..."}
 [[nodiscard]] std::string url_json(std::string_view url);
 
+/// Every group's name (chem::to_string), in chem::kAllGroups order: ["carboxylic acid", ...].
+[[nodiscard]] std::string groups_json();
+
 /// The classified 13C peaks, in 13C order:
 /// [{"shift":29.5,"types":["CH2"]}, ...], types in C, CH, CH2, CH3 order.
 [[nodiscard]] std::string to_json(std::span<const nmr1d::CarbonAssignment> peaks);

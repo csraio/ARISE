@@ -57,12 +57,23 @@ neither depends on the other → `chem` (in-house SMILES reader, molecule graph)
     . ~/.local/share/emsdk/emsdk_env.sh      # per shell, then the wasm preset:
     cmake --preset wasm && cmake --build --preset wasm && ctest --preset wasm
 The wasm preset runs the tests under Node with UBSan, SAFE_HEAP, ASSERTIONS=2 and
-stack-overflow checks. CI runs dev, asan and release on Linux x86_64, dev and release on arm64, plus wasm.
+stack-overflow checks. CI runs dev, asan and release on Linux x86_64, dev and release on arm64, plus wasm
+and web.
 macOS (Apple clang) is not in CI: run the dev, asan and release presets locally before
 opening a PR. Apple silicon is not a target; wasm is the cross-platform build, and its
 result does not depend on the machine, so CI's wasm job covers it (no local wasm run
 needed). The asan test preset skips the heavy full-database tests (its "exclude" filter in
 CMakePresets.json): they take most of asan's time, and dev and release run them.
+
+Web client (plan "web client"): the `web` preset builds the engine for the page
+(`apps/wasm`, release) into `build/web/apps/wasm/arise_engine.{js,wasm}`. Its functions take
+plain JavaScript values and answer in JSON (`arise::pipeline`). The page's JavaScript lives in
+`public/js/`; its tests (`public/tests/*.test.js`) use Node's built-in runner and load that
+engine (or the module named by `ARISE_ENGINE_JS`):
+    cmake --preset web && cmake --build --preset web       # after emsdk_env.sh
+    "$EMSDK_NODE" --test public/tests/*.test.js
+`apps/wasm` builds only with Emscripten, so scripts/run_clang_tidy.sh skips it; CI's `web`
+job compiles it with every warning as an error and runs the Node tests.
 
 Benchmark (plan 3d; development-only, `bench/`, built with the tests): `arise_bench` times
 cleaning + pruning of a real 10,000+-row PubChem search (the builder's benchmark case) and
@@ -146,8 +157,8 @@ so the speed gained cannot slip back (the chemist's decision, 2026-11-22; CI med
 - Never commit build output, data dumps or secrets. Never bypass hooks.
 - Significant design choices get a short ADR in `docs/adr/`.
 - CI (`.github/workflows/ci.yml`) runs on pull requests only (plus manual dispatch):
-  Linux x86_64 `dev`, `asan`, `release` and arm64 `dev`, `release`, plus wasm, lint
-  and the commit-gate self-test. No run on push to `main`: PRs must be up to date with
+  Linux x86_64 `dev`, `asan`, `release` and arm64 `dev`, `release`, plus wasm, web
+  (engine + Node tests), lint, the benchmark guard and the commit-gate self-test. No run on push to `main`: PRs must be up to date with
   `main` to merge, so the PR run already tested the merged tree. `main` only takes
   changes through green PRs.
 
