@@ -90,6 +90,13 @@ TEST(PastedCarbon, SkipsBlankLinesCommentsAndSurroundingSpace) {
     EXPECT_EQ(result.value()[1].shift, Ppm{29.0});
 }
 
+TEST(PastedCarbon, LineNumbersCountEachLineEndOnce) {
+    // CRLF is one line end, as are a lone LF and a lone CR.
+    expect_error(parse_pasted_carbon, "29\r\n30\r\nabc\r\n", ErrorCode::ParseError, {"line 3"});
+    expect_error(parse_pasted_carbon, "29\r30\rabc\r", ErrorCode::ParseError, {"line 3"});
+    expect_error(parse_pasted_carbon, "29\n\r\nabc\n", ErrorCode::ParseError, {"line 3"});
+}
+
 TEST(PastedCarbon, AcceptsOldMacLineEnds) {
     const auto result = parse_pasted_carbon("170.5\r29\r");
     ASSERT_TRUE(result.ok()) << result.error().message;
@@ -121,6 +128,7 @@ TEST(PastedCarbon, AMistypedFirstPeakIsAnErrorNotAHeader) {
     expect_error(parse_pasted_carbon, "-29x\n170.5\n", ErrorCode::ParseError, {"line 1"});
     expect_error(parse_pasted_carbon, ".5ppm\n170.5\n", ErrorCode::ParseError, {"line 1"});
     // A first line without a letter is not a header either.
+    expect_error(parse_pasted_carbon, "***\n170.5\n", ErrorCode::ParseError, {"line 1"});
     expect_error(parse_pasted_carbon, "---\n170.5\n", ErrorCode::ParseError, {"line 1"});
 }
 

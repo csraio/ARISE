@@ -75,9 +75,12 @@ TEST(PipelineJson, ShiftsUseAtMostSixDecimals) {
     const std::vector<arise::nmr1d::CarbonAssignment> peaks{
         {.shift = Ppm{0.1234567}, .possible = CarbonTypeSet{CarbonType::C}},
         {.shift = Ppm{0.0}, .possible = CarbonTypeSet{CarbonType::C}},
+        {.shift = Ppm{-0.0000001}, .possible = CarbonTypeSet{CarbonType::C}},
     };
+    // A value that rounds to zero is written "0", never "-0".
     EXPECT_EQ(to_json(peaks),
-              "[{\"shift\":0.123457,\"types\":[\"C\"]},{\"shift\":0,\"types\":[\"C\"]}]");
+              "[{\"shift\":0.123457,\"types\":[\"C\"]},"
+              "{\"shift\":0,\"types\":[\"C\"]},{\"shift\":0,\"types\":[\"C\"]}]");
 }
 
 TEST(PipelineJson, Suggestions) {
