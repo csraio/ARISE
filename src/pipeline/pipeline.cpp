@@ -6,6 +6,7 @@
 #include "arise/filter/carbon_fit.hpp"
 #include "arise/io/carbon_csv.hpp"
 #include "arise/io/pasted_peaks.hpp"
+#include "arise/io/peak_csv.hpp"
 
 #include <algorithm>
 #include <span>
@@ -133,17 +134,47 @@ core::Result<std::vector<nmr1d::CarbonAssignment>> read_spectra(const SpectraTex
     return nmr1d::classify_carbons(dept);
 }
 
-core::Result<std::vector<filter::GroupSuggestion>> suggest(const SpectraText& spectra,
-                                                           filter::SuggestOptions options) {
+core::Result<std::optional<std::vector<io::ObservedPeak>>> read_protons(
+    const SpectraText& spectra) {
+    if (!spectra.proton.has_value()) {
+        return std::optional<std::vector<io::ObservedPeak>>{};
+    }
+    auto peaks = spectra.proton->format == TextFormat::Csv
+                     ? io::parse_peak_csv(spectra.proton->text)
+                     : io::parse_pasted_protons(spectra.proton->text);
+    if (!peaks.ok()) {
+        return named("1H spectrum", std::move(peaks).error());
+    }
+    return std::optional{std::move(peaks).value()};
+}
+
+core::Result<Suggestions> suggest(const SpectraText& spectra, filter::SuggestOptions options,
+                                  filter::ProtonOptions proton_options) {
     const auto peaks = read_spectra(spectra);
     if (!peaks.ok()) {
         return peaks.error();
+    }
+    const auto protons = read_protons(spectra);
+    if (!protons.ok()) {
+        return protons.error();
     }
     const auto windows = filter::measured_hallmark_windows();
     if (!windows.ok()) {
         return windows.error();
     }
-    return filter::suggest_groups(peaks.value(), windows.value(), options);
+    Suggestions suggestions{
+        .carbon = filter::suggest_groups(peaks.value(), windows.value(), options),
+        .proton = {},
+    };
+    if (protons.value().has_value()) {
+        const auto proton_windows = filter::measured_proton_windows();
+        if (!proton_windows.ok()) {
+            return proton_windows.error();
+        }
+        suggestions.proton = filter::suggest_groups_from_protons(
+            *protons.value(), proton_windows.value(), proton_options);
+    }
+    return suggestions;
 }
 
 std::string_view to_string(TextFormat format) noexcept {

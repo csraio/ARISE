@@ -4,7 +4,7 @@
 // same ranking (golden rule 4).
 
 export const kRecordFormat = "arise-record";
-export const kRecordVersion = 1;
+export const kRecordVersion = 2;  // 2: adds the 1H spectrum and the likely groups
 
 /** A file that is not a usable record, with the reason. */
 export class RecordError extends Error {
@@ -15,7 +15,7 @@ export class RecordError extends Error {
 }
 
 /** A record from the page's state; `ranking` is the engine's answer, or null. */
-export function makeRecord({ formula, queryDate, pubchemUrl, pubchemCsv, spectra, present, absent, useDept, ranking }) {
+export function makeRecord({ formula, queryDate, pubchemUrl, pubchemCsv, spectra, present, absent, likely, useDept, ranking }) {
   return {
     format: kRecordFormat,
     version: kRecordVersion,
@@ -26,6 +26,7 @@ export function makeRecord({ formula, queryDate, pubchemUrl, pubchemCsv, spectra
     spectra,
     present,
     absent,
+    likely: likely ?? [],
     useDept,
     ranking: ranking ?? null,
   };
@@ -75,19 +76,25 @@ export function readRecord(text) {
   if (record === null || typeof record !== "object" || Array.isArray(record) || record.format !== kRecordFormat) {
     throw new RecordError("this file is not an ARISE record");
   }
+  if (record.version === 1) {
+    // Version 1 had no 1H spectrum and no likely groups.
+    record = { ...record, version: kRecordVersion, likely: [], spectra: { ...record.spectra, proton: null } };
+  }
   if (record.version !== kRecordVersion) {
-    throw new RecordError(`this record is version ${record.version}; this page reads version ${kRecordVersion}`);
+    throw new RecordError(`this record is version ${record.version}; this page reads versions 1 and ${kRecordVersion}`);
   }
   for (const field of ["formula", "queryDate", "pubchemUrl", "pubchemCsv"]) requireType(record, field, "string");
   requireType(record, "useDept", "boolean");
   requireNames(record, "present");
   requireNames(record, "absent");
+  requireNames(record, "likely");
   if (record.spectra === null || typeof record.spectra !== "object") {
     throw new RecordError("the record's spectra are missing");
   }
   requireSpectrum(record.spectra, "carbon", false);
   requireSpectrum(record.spectra, "dept135", true);
   requireSpectrum(record.spectra, "dept90", true);
+  requireSpectrum(record.spectra, "proton", true);
   if (record.ranking !== null && (typeof record.ranking !== "object" || !Array.isArray(record.ranking.candidates))) {
     throw new RecordError("the record's ranking is malformed");
   }

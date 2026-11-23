@@ -5,6 +5,7 @@ add_executable(arise_pipeline_tests
 target_link_libraries(arise_pipeline_tests
     PRIVATE
         arise::pipeline
+        arise_group_shifts
         arise_test_fixtures
         GTest::gtest_main)
 arise_set_warnings(arise_pipeline_tests)

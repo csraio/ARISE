@@ -14,9 +14,11 @@ const inputs = {
     carbon: { format: "pasted", text: "29\n" },
     dept135: { format: "csv", text: "shift_ppm,intensity\n29,-1\n" },
     dept90: null,
+    proton: { format: "pasted", text: "3.81\t3\n" },
   },
   present: ["ketone"],
   absent: [],
+  likely: ["methoxy"],
   useDept: true,
   ranking: { formula: "C3H6O", rows: 0, removed: [], candidates: [] },
 };
@@ -24,13 +26,24 @@ const inputs = {
 test("a record reads back as written", () => {
   const record = makeRecord(inputs);
   assert.equal(record.format, "arise-record");
-  assert.equal(record.version, 1);
+  assert.equal(record.version, 2);
   assert.deepEqual(readRecord(recordJson(record)), record);
 });
 
 test("a record without a ranking is valid", () => {
   const record = makeRecord({ ...inputs, ranking: null });
   assert.deepEqual(readRecord(recordJson(record)), record);
+});
+
+test("a version 1 record still opens, without 1H and likely groups", () => {
+  const { likely, ...v1 } = makeRecord(inputs);
+  const { proton, ...spectra } = v1.spectra;
+  const text = JSON.stringify({ ...v1, version: 1, spectra });
+  const read = readRecord(text);
+  assert.equal(read.version, 2);
+  assert.equal(read.spectra.proton, null);
+  assert.deepEqual(read.likely, []);
+  assert.deepEqual(read.present, ["ketone"]);
 });
 
 test("the file name carries the formula and the query day", () => {
@@ -45,7 +58,7 @@ test("text that is not a record is refused with a reason", () => {
   rejects("not json", /not an ARISE record/);
   rejects("[]", /not an ARISE record/);
   rejects(JSON.stringify({ format: "something else", version: 1 }), /not an ARISE record/);
-  rejects(JSON.stringify({ ...makeRecord(inputs), version: 2 }), /version 2/);
+  rejects(JSON.stringify({ ...makeRecord(inputs), version: 3 }), /version 3/);
 });
 
 test("a record with a missing or wrong field is refused, naming the field", () => {
@@ -58,6 +71,7 @@ test("a record with a missing or wrong field is refused, naming the field", () =
     ["useDept", "yes"],
     ["present", "ketone"],
     ["absent", [3]],
+    ["likely", "methoxy"],
     ["spectra", null],
   ]) {
     const broken = { ...record, [field]: value };
@@ -67,6 +81,10 @@ test("a record with a missing or wrong field is refused, naming the field", () =
   rejects(
     JSON.stringify({ ...record, spectra: { ...record.spectra, dept90: { format: "xml", text: "" } } }),
     /dept90/,
+  );
+  rejects(
+    JSON.stringify({ ...record, spectra: { ...record.spectra, proton: { format: "pasted", text: 4 } } }),
+    /proton/,
   );
 });
 

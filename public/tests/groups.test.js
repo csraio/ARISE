@@ -7,16 +7,21 @@ import { confirmedFrom, groupChoices } from "../js/groups.js";
 
 const all = ["acid", "ketone", "ester", "ether"];
 const suggestions = [
-  { group: "ester", evidence: [{ peak: 0 }] },
-  { group: "ketone", evidence: [{ peak: 1 }, { peak: 2 }] },
+  { group: "ester", evidence: [{ spectrum: "13C", peak: 0 }] },
+  { group: "ketone", evidence: [{ spectrum: "13C", peak: 1 }, { spectrum: "1H", peak: 2 }] },
 ];
 
 test("suggested groups come first, in suggestion order, with their evidence", () => {
   assert.deepEqual(groupChoices(all, suggestions), [
-    { group: "ester", suggested: true, evidence: [{ peak: 0 }] },
-    { group: "ketone", suggested: true, evidence: [{ peak: 1 }, { peak: 2 }] },
-    { group: "acid", suggested: false, evidence: [] },
-    { group: "ether", suggested: false, evidence: [] },
+    { group: "ester", suggested: true, fromProton: false, evidence: [{ spectrum: "13C", peak: 0 }] },
+    {
+      group: "ketone",
+      suggested: true,
+      fromProton: true,
+      evidence: [{ spectrum: "13C", peak: 1 }, { spectrum: "1H", peak: 2 }],
+    },
+    { group: "acid", suggested: false, fromProton: false, evidence: [] },
+    { group: "ether", suggested: false, fromProton: false, evidence: [] },
   ]);
 });
 
@@ -31,10 +36,15 @@ test("a suggestion for a group the engine does not list is a programming error",
   assert.throws(() => groupChoices(all, [{ group: "nitrile", evidence: [] }]), /nitrile/);
 });
 
-test("ticks become present and absent lists in engine order; unsure is left out", () => {
-  const ticks = { ether: "absent", acid: "present", ketone: "unsure", ester: "present" };
-  assert.deepEqual(confirmedFrom(all, ticks), { present: ["acid", "ester"], absent: ["ether"] });
-  assert.deepEqual(confirmedFrom(all, {}), { present: [], absent: [] });
+test("ticks become present, absent and likely lists in engine order; unsure is left out", () => {
+  const ticks = { ether: "absent", acid: "present", ketone: "likely", ester: "present" };
+  assert.deepEqual(confirmedFrom(all, ticks), {
+    present: ["acid", "ester"],
+    absent: ["ether"],
+    likely: ["ketone"],
+  });
+  assert.deepEqual(confirmedFrom(all, { ketone: "unsure" }), { present: [], absent: [], likely: [] });
+  assert.deepEqual(confirmedFrom(all, {}), { present: [], absent: [], likely: [] });
 });
 
 test("an unknown tick value is a programming error", () => {

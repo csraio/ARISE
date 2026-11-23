@@ -8,6 +8,8 @@
 #include "arise/core/error.hpp"
 #include "arise/core/units.hpp"
 #include "arise/filter/groups.hpp"
+#include "arise/filter/proton_groups.hpp"
+#include "arise/io/peak_csv.hpp"
 #include "arise/io/pubchem.hpp"
 #include "arise/nmr1d/dept.hpp"
 #include "arise/pipeline/pipeline.hpp"
@@ -92,7 +94,8 @@ TEST(PipelineJson, ShiftsUseAtMostSixDecimals) {
               "{\"shift\":0,\"types\":[\"C\"]},{\"shift\":0,\"types\":[\"C\"]}]");
 }
 
-TEST(PipelineJson, Suggestions) {
+// A 13C window used by the suggestion tests below.
+arise::filter::HallmarkWindow ketone_window() {
     arise::filter::HallmarkWindow window;
     window.group = arise::chem::Group::Ketone;
     window.hallmark = "carbonyl carbon";
@@ -102,6 +105,11 @@ TEST(PipelineJson, Suggestions) {
     window.n = 812;
     window.molecules = 790;
     window.source = arise::filter::WindowSource::Percentiles;
+    return window;
+}
+
+TEST(PipelineJson, CarbonSuggestionsNameTheirSpectrum) {
+    const auto window = ketone_window();
     auto lab = window;
     lab.hallmark = "our \"ketone\"";
     lab.source = arise::filter::WindowSource::Lab;
@@ -109,29 +117,134 @@ TEST(PipelineJson, Suggestions) {
     lab.molecules = 0;
     auto few = window;
     few.source = arise::filter::WindowSource::MeasuredRange;
-    const std::vector<arise::filter::GroupSuggestion> suggestions{
-        {
-            .group = arise::chem::Group::Ketone,
-            .evidence =
+    const arise::pipeline::Suggestions suggestions{
+        .carbon =
+            {
                 {
-                    {.peak = 3, .shift = Ppm{208.5}, .window = window},
-                    {.peak = 3, .shift = Ppm{208.5}, .window = lab},
-                    {.peak = 4, .shift = Ppm{199}, .window = few},
+                    .group = arise::chem::Group::Ketone,
+                    .evidence =
+                        {
+                            {.peak = 3, .shift = Ppm{208.5}, .window = window},
+                            {.peak = 3, .shift = Ppm{208.5}, .window = lab},
+                            {.peak = 4, .shift = Ppm{199}, .window = few},
+                        },
                 },
-        },
+            },
+        .proton = {},
     };
     const std::string ketone{arise::chem::to_string(arise::chem::Group::Ketone)};
     const std::string head =
-        R"({"peak":3,"shift":208.5,"hallmark":"carbonyl carbon","types":["C"],"low":195.5,"high":215.25,)";
+        R"({"spectrum":"13C","peak":3,"shift":208.5,"hallmark":"carbonyl carbon","types":["C"],"low":195.5,"high":215.25,)";
+    EXPECT_EQ(
+        to_json(suggestions),
+        R"([{"group":")" + ketone + R"(","evidence":[)" + head +
+            R"("n":812,"molecules":790,"source":"percentiles"},)" +
+            R"({"spectrum":"13C","peak":3,"shift":208.5,"hallmark":"our \"ketone\"","types":["C"],)" +
+            R"("low":195.5,"high":215.25,"n":0,"molecules":0,"source":"lab"},)" +
+            R"({"spectrum":"13C","peak":4,"shift":199,"hallmark":"carbonyl carbon","types":["C"],)" +
+            R"("low":195.5,"high":215.25,"n":812,"molecules":790,)" +
+            R"("source":"measured range"}]}])");
+    EXPECT_EQ(to_json(arise::pipeline::Suggestions{}), "[]");
+}
+
+// A 1H window used by the suggestion tests below.
+arise::filter::ProtonWindow methoxy_window() {
+    return {
+        .group = arise::chem::Group::Methoxy,
+        .hallmark = "O-CH3 carbon",
+        .type = CarbonType::CH3,
+        .low = Ppm{3.04},
+        .high = Ppm{4.31},
+        .n = 1082,
+        .molecules = 807,
+        .precision = 0.719,
+        .base_rate = 0.14,
+        .round1 = true,
+    };
+}
+
+TEST(PipelineJson, ProtonSuggestionsCarryCountsAndPrecision) {
+    const arise::pipeline::Suggestions suggestions{
+        .carbon = {},
+        .proton =
+            {
+                {
+                    .group = arise::chem::Group::Methoxy,
+                    .evidence =
+                        {
+                            {
+                                .peak = 0,
+                                .shift = Ppm{3.81},
+                                .protons = 3,
+                                .window = methoxy_window(),
+                            },
+                            {
+                                .peak = 2,
+                                .shift = Ppm{3.9},
+                                .protons = std::nullopt,
+                                .window = methoxy_window(),
+                            },
+                        },
+                },
+            },
+    };
+    const std::string methoxy{arise::chem::to_string(arise::chem::Group::Methoxy)};
+    const std::string tail =
+        R"("hallmark":"O-CH3 carbon","h_count":"CH3","low":3.04,"high":4.31,"n":1082,"molecules":807,"precision":0.719,"base_rate":0.14})";
     EXPECT_EQ(to_json(suggestions),
-              R"([{"group":")" + ketone + R"(","evidence":[)" + head +
-                  R"("n":812,"molecules":790,"source":"percentiles"},)" +
-                  R"({"peak":3,"shift":208.5,"hallmark":"our \"ketone\"","types":["C"],)" +
-                  R"("low":195.5,"high":215.25,"n":0,"molecules":0,"source":"lab"},)" +
-                  R"({"peak":4,"shift":199,"hallmark":"carbonyl carbon","types":["C"],)" +
-                  R"("low":195.5,"high":215.25,"n":812,"molecules":790,)" +
-                  R"("source":"measured range"}]}])");
-    EXPECT_EQ(to_json(std::vector<arise::filter::GroupSuggestion>{}), "[]");
+              R"([{"group":")" + methoxy + R"(","evidence":[)" +
+                  R"({"spectrum":"1H","peak":0,"shift":3.81,"protons":3,)" + tail + "," +
+                  R"({"spectrum":"1H","peak":2,"shift":3.9,"protons":null,)" + tail + "]}]");
+}
+
+TEST(PipelineJson, SuggestionsMergePerGroupInEngineOrderCarbonFirst) {
+    // Ketone (13C only) comes before methoxy (both spectra) in kAllGroups order; within a
+    // group, 13C evidence comes before 1H evidence.
+    auto methoxy_13c = ketone_window();
+    methoxy_13c.group = arise::chem::Group::Methoxy;
+    const arise::pipeline::Suggestions suggestions{
+        .carbon =
+            {
+                {
+                    .group = arise::chem::Group::Ketone,
+                    .evidence = {{.peak = 1, .shift = Ppm{208.5}, .window = ketone_window()}},
+                },
+                {
+                    .group = arise::chem::Group::Methoxy,
+                    .evidence = {{.peak = 0, .shift = Ppm{55.9}, .window = methoxy_13c}},
+                },
+            },
+        .proton =
+            {
+                {
+                    .group = arise::chem::Group::Methoxy,
+                    .evidence =
+                        {{.peak = 0, .shift = Ppm{3.81}, .protons = 3, .window = methoxy_window()}},
+                },
+            },
+    };
+    const auto text = to_json(suggestions);
+    const auto ketone = text.find(R"("group":"ketone")");
+    const auto methoxy = text.find(R"("group":"methoxy")");
+    const auto carbon = text.find(R"("spectrum":"13C","peak":0)");
+    const auto proton = text.find(R"("spectrum":"1H")");
+    ASSERT_NE(ketone, std::string::npos);
+    ASSERT_NE(methoxy, std::string::npos);
+    EXPECT_LT(ketone, methoxy);
+    EXPECT_LT(methoxy, carbon);
+    EXPECT_LT(carbon, proton);
+    EXPECT_EQ(text.find(R"("group":"methoxy")", methoxy + 1), std::string::npos);  // once
+}
+
+TEST(PipelineJson, ProtonPeaksListShiftAndCount) {
+    const std::vector<arise::io::ObservedPeak> peaks{
+        {.shift = Ppm{3.81}, .integral = 3.0},
+        {.shift = Ppm{7.26}, .integral = std::nullopt},
+        {.shift = Ppm{1.2}, .integral = 2.6},
+    };
+    EXPECT_EQ(to_json(peaks), R"([{"shift":3.81,"protons":3},{"shift":7.26,"protons":null},)"
+                              R"({"shift":1.2,"protons":3}])");
+    EXPECT_EQ(arise::pipeline::protons_json(std::nullopt), "null");
 }
 
 TEST(PipelineJson, Ranking) {

@@ -73,3 +73,27 @@ export function pastedSpectra(benchmark) {
 export function benchmarkSearch(benchmark) {
   return repoText(`tests/data/pubchem_${benchmark.formula}.csv`);
 }
+
+/**
+ * The round-1 1H windows of data/group_proton_shifts.tsv (written by
+ * tools/measure_group_proton_shifts): [{group, hCount, median, precision}].
+ */
+export function roundOneProtonWindows() {
+  const windows = [];
+  for (const line of repoText("data/group_proton_shifts.tsv").split("\n")) {
+    if (line === "" || line.startsWith("#")) continue;
+    const f = line.split("\t");
+    if (f[20] === "1") windows.push({ group: f[0], hCount: f[2], median: f[8], precision: Number(f[16]) });
+  }
+  if (windows.length === 0) throw new Error("no round-1 1H windows");
+  return windows;
+}
+
+/** A pasted 1H list with one peak per round-1 window: its median shift, at its H count. */
+export function roundOneProtonText() {
+  const counts = { CH: 1, CH2: 2, CH3: 3 };
+  return roundOneProtonWindows()
+    .map((w) => `${w.median}\t${counts[w.hCount]}\n`)
+    .join("");
+}
+

@@ -5,7 +5,14 @@ import assert from "node:assert/strict";
 import { before, test } from "node:test";
 
 import { EngineError } from "../js/engine.js";
-import { benchmarkCase, benchmarkSearch, builtEngine, pastedSpectra } from "./fixtures.js";
+import {
+  benchmarkCase,
+  benchmarkSearch,
+  builtEngine,
+  pastedSpectra,
+  roundOneProtonText,
+  roundOneProtonWindows,
+} from "./fixtures.js";
 
 let engine;
 let benchmark;
@@ -23,6 +30,7 @@ function rankBenchmark(overrides = {}) {
     spectra: pastedSpectra(benchmark),
     present: [],
     absent: [],
+    likely: [],
     useDept: true,
     ...overrides,
   });
@@ -135,3 +143,60 @@ test("values of the wrong kind are InvalidArgument, never a crash", () => {
   // The engine still answers after all of these.
   assert.ok(engine.groupNames().length > 0);
 });
+
+// ---- 1H ---------------------------------------------------------------------------------
+
+function withProtons(text, format = "pasted") {
+  return { ...pastedSpectra(benchmark), proton: { format, text } };
+}
+
+test("readProtons is null without a 1H spectrum and reads one when given", () => {
+  assert.equal(engine.readProtons(pastedSpectra(benchmark)), null);
+  const peaks = engine.readProtons(withProtons(roundOneProtonText()));
+  const windows = roundOneProtonWindows();
+  assert.equal(peaks.length, windows.length);
+  peaks.forEach((peak, i) => assert.equal(peak.shift, Number(windows[i].median)));
+  assert.ok(peaks.every((peak) => Number.isInteger(peak.protons)));
+});
+
+test("suggest gives 1H evidence for each round-1 window, with its precision", () => {
+  const suggestions = engine.suggest(withProtons(roundOneProtonText()), true);
+  for (const window of roundOneProtonWindows()) {
+    const group = suggestions.find((s) => s.group === window.group);
+    assert.ok(group, window.group);
+    const evidence = group.evidence.filter((e) => e.spectrum === "1H");
+    assert.ok(evidence.length > 0, window.group);
+    assert.ok(evidence.every((e) => e.precision === window.precision && e.h_count === window.hCount));
+  }
+  // Without a 1H spectrum there is no 1H evidence.
+  const carbonOnly = engine.suggest(pastedSpectra(benchmark), true);
+  assert.ok(carbonOnly.every((s) => s.evidence.every((e) => e.spectrum === "13C")));
+});
+
+test("rank back-burners, never eliminates, candidates without a likely group", () => {
+  const plain = rankBenchmark();
+  const likely = rankBenchmark({ likely: ["methoxy"] });
+  assert.equal(likely.candidates.length, plain.candidates.length);
+  const eliminated = (r) => r.candidates.filter((c) => c.tier === "eliminated").length;
+  assert.equal(eliminated(likely), eliminated(plain));
+  const soft = likely.candidates.filter((c) =>
+    c.reasons.includes("likely present (from 1H): methoxy; the candidate has none"),
+  );
+  assert.ok(soft.length > 0);
+  assert.ok(soft.every((c) => c.tier === "back-burner"));
+});
+
+test("1H input errors are named", () => {
+  assertEngineError(() => engine.readProtons(withProtons("3,8\n")), "ParseError");
+  assert.throws(
+    () => engine.readProtons(withProtons("3,8\n")),
+    (error) => error.message.startsWith("1H spectrum"),
+  );
+  assertEngineError(
+    () => engine.readProtons({ ...pastedSpectra(benchmark), proton: { format: "xml", text: "" } }),
+    "InvalidArgument",
+  );
+  assertEngineError(() => rankBenchmark({ likely: "methoxy" }), "InvalidArgument");
+  assertEngineError(() => rankBenchmark({ likely: ["methoxy"], absent: ["methoxy"] }), "InvalidArgument");
+});
+

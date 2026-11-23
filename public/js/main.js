@@ -127,6 +127,10 @@ function buildSpectrumPanels() {
     const kind = holder.dataset.kind;
     root.querySelector("legend").textContent = holder.dataset.title;
     const select = root.querySelector(".mode-select");
+    if (kind === "proton") {
+      // The table's second column is the integral, as a number of protons.
+      root.querySelectorAll(".entry-table th")[1].textContent = "Protons (integral)";
+    }
     if (kind === "carbon") {
       select.querySelector('option[value="none"]').remove();
       select.value = "paste";
@@ -216,24 +220,58 @@ function showPeaks(peaks) {
   $("peaks").hidden = false;
 }
 
+function showProtons(protons) {
+  const box = $("protons");
+  if (protons === null) {
+    box.hidden = true;
+    return;
+  }
+  const tbody = $("protons-table").querySelector("tbody");
+  tbody.replaceChildren(
+    ...protons.map((peak, i) => {
+      const tr = document.createElement("tr");
+      for (const text of [String(i + 1), String(peak.shift), peak.protons === null ? "–" : `${peak.protons}H`]) {
+        const td = document.createElement("td");
+        td.textContent = text;
+        td.className = "number";
+        tr.append(td);
+      }
+      return tr;
+    }),
+  );
+  box.hidden = false;
+}
+
 function readSpectra() {
   showError("spectra-error", null);
   try {
     const current = currentSpectra();
     showPeaks(state.engine.readSpectra(current));
+    showProtons(state.engine.readProtons(current));
     suggestGroups(current);
   } catch (error) {
     $("peaks").hidden = true;
+    $("protons").hidden = true;
     showError("spectra-error", error);
   }
 }
 
 // ---- 3. groups ---------------------------------------------------------------------
 
+const percent = (rate) => `${Math.round(rate * 100)}%`;
+
 function evidenceText(e) {
   const where = `${e.low}–${e.high} ppm`;
+  if (e.spectrum === "1H") {
+    const protons = e.protons === null ? "" : ` (${e.protons}H)`;
+    return (
+      `1H peak ${e.peak + 1} at ${e.shift} ppm${protons}: H on the ${e.hallmark} (${e.h_count}) window ${where}; ` +
+      `${percent(e.precision)} of nmrshiftdb2 molecules with such a peak have the group ` +
+      `(${percent(e.base_rate)} of all molecules do)`
+    );
+  }
   const basis = e.source === "lab" ? "your lab's window" : `${e.molecules} molecules, ${e.source}`;
-  return `peak ${e.peak + 1} at ${e.shift} ppm: ${e.hallmark} window ${where} (${basis})`;
+  return `13C peak ${e.peak + 1} at ${e.shift} ppm: ${e.hallmark} window ${where} (${basis})`;
 }
 
 function groupItem(choice) {
@@ -247,7 +285,11 @@ function groupItem(choice) {
   const choices = document.createElement("fieldset");
   choices.className = "choices";
   choices.setAttribute("aria-label", choice.group);
-  for (const value of ["unsure", "present", "absent"]) {
+  // "likely" only for groups with 1H evidence (candidates without them are back-burnered), or
+  // when it is already chosen (a reopened record), so the choice in effect is always shown.
+  const offerLikely = choice.fromProton || state.ticks[choice.group] === "likely";
+  const values = offerLikely ? ["unsure", "likely", "present", "absent"] : ["unsure", "present", "absent"];
+  for (const value of values) {
     const label = document.createElement("label");
     const radio = document.createElement("input");
     radio.type = "radio";
@@ -466,6 +508,7 @@ async function openRecord(event) {
     state.ticks = {};
     for (const group of record.present) state.ticks[group] = "present";
     for (const group of record.absent) state.ticks[group] = "absent";
+    for (const group of record.likely) state.ticks[group] = "likely";
     readSpectra();
     rankCandidates();
     if (record.ranking !== null && state.ranking !== null) {

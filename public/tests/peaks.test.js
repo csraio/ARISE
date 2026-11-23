@@ -69,8 +69,15 @@ test("spectrumFrom: paste, upload and table", () => {
   });
 });
 
-test("spectrumFrom: a DEPT spectrum may be not recorded; 13C may not", () => {
+test("a 1H table gives an integral column only when every row has one", () => {
+  assert.equal(tableToCsv([row("3.81", "3"), row("7.26", "5")], "proton"), "shift_ppm,integral\n3.81,3\n7.26,5\n");
+  assert.equal(tableToCsv([row("3.81"), row("7.26")], "proton"), "shift_ppm\n3.81\n7.26\n");
+  assert.throws(() => tableToCsv([row("3.81", "3"), row("7.26")], "proton"), /row 2/);
+});
+
+test("spectrumFrom: a DEPT or 1H spectrum may be not recorded; 13C may not", () => {
   assert.equal(spectrumFrom({ mode: "none" }, "dept"), null);
+  assert.equal(spectrumFrom({ mode: "none" }, "proton"), null);
   assert.throws(() => spectrumFrom({ mode: "none" }, "carbon"), PeakEntryError);
 });
 
