@@ -7,6 +7,7 @@
 #include "arise/io/carbon_csv.hpp"
 #include "arise/io/pasted_peaks.hpp"
 
+#include <algorithm>
 #include <span>
 #include <utility>
 
@@ -85,7 +86,18 @@ core::Result<filter::CarbonFit> fit_of(const io::Candidate& candidate,
         fit.verdict = std::move(groups).value();
         return fit;
     }
-    return filter::check_carbon_fit(molecule.value(), peaks, options);
+    auto carbon = filter::check_carbon_fit(molecule.value(), peaks, options);
+    if (!carbon.ok() || groups.value().tier == filter::Tier::Active) {
+        return carbon;
+    }
+    // Back-burnered by a group confirmed only as likely (from 1H): keep the carbon fit, list
+    // the group's reasons first, and take the worse tier.
+    fit = std::move(carbon).value();
+    auto reasons = std::move(groups.value().reasons);
+    reasons.insert(reasons.end(), fit.verdict.reasons.begin(), fit.verdict.reasons.end());
+    fit.verdict.reasons = std::move(reasons);
+    fit.verdict.tier = std::max(fit.verdict.tier, groups.value().tier);
+    return fit;
 }
 
 }  // namespace

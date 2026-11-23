@@ -130,6 +130,12 @@ struct SuggestOptions {
 struct ConfirmedGroups {
     std::vector<chem::Group> present;
     std::vector<chem::Group> absent;
+    /// Groups confirmed from 1H evidence only: soft (the chemist's decision, 2026-11-22). A
+    /// candidate without one goes to the back burner, never eliminated. A group also in
+    /// `present` counts as present.
+    // The explicit default lets {.present, .absent} initializers leave it out without a
+    // missing-field warning.
+    std::vector<chem::Group> likely_present = {};  // NOLINT(readability-redundant-member-init)
 };
 
 /// Where a candidate stands (plan 3: rank, don't delete).
@@ -150,10 +156,12 @@ struct Verdict {
     friend bool operator==(const Verdict&, const Verdict&) = default;
 };
 
-/// Checks a candidate against the chemist's confirmed groups: Eliminated, with one reason
-/// per violated group (in the order given), if it lacks a group confirmed present or has
-/// one confirmed absent (counted by chem::count_group); Active otherwise.
-/// InvalidArgument if a group is confirmed both present and absent.
+/// Checks a candidate against the chemist's confirmed groups, with one reason per violated
+/// group (present, then absent, then likely, each in the order given): Eliminated if it lacks
+/// a group confirmed present or has one confirmed absent (counted by chem::count_group);
+/// otherwise BackBurner if it lacks a group confirmed likely present; Active otherwise.
+/// InvalidArgument if a group is confirmed both present and absent, or likely present and
+/// absent.
 [[nodiscard]] core::Result<Verdict> check_confirmed_groups(const chem::Molecule& molecule,
                                                            const ConfirmedGroups& confirmed);
 

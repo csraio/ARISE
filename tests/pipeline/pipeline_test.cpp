@@ -21,6 +21,7 @@
 
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -483,6 +484,80 @@ arise::pipeline::RankedCandidate expected_candidate(const DirectRanking& direct,
         .environments_most = fit.environments_most,
         .notes = fit.notes,
     };
+}
+
+// What rank should give a candidate whose groups are only soft-confirmed: its carbon fit
+// (always run), with the group's reasons first and the worse of the two tiers.
+arise::pipeline::RankedCandidate expected_soft(
+    const arise::pipeline::RankedCandidate& candidate,
+    const std::vector<arise::nmr1d::CarbonAssignment>& peaks, const ConfirmedGroups& confirmed) {
+    const auto fit = fit_directly(candidate.smiles, peaks);
+    const auto groups = group_verdict(candidate.smiles, confirmed);
+    auto reasons = groups.reasons;
+    reasons.insert(reasons.end(), fit.verdict.reasons.begin(), fit.verdict.reasons.end());
+    return {
+        .cid = candidate.cid,
+        .smiles = candidate.smiles,
+        .verdict = {.tier = std::max(groups.tier, fit.verdict.tier), .reasons = reasons},
+        .assumed_overlaps = fit.assumed_overlaps,
+        .environments_fewest = fit.environments_fewest,
+        .environments_most = fit.environments_most,
+        .notes = fit.notes,
+    };
+}
+
+// A group confirmed from 1H evidence is soft (the chemist's decision, 2026-11-22): a
+// candidate without it is back-burnered and still gets its carbon fit; its tier is the
+// worse of the two, with the group's reason first.
+TEST(PipelineRank, ALikelyGroupBackBurnersAndKeepsTheCarbonFit) {
+    ASSERT_EQ(compound_formula("Methyl formate"), compound_formula("Acetic Acid"));
+    const ConfirmedGroups likely_methoxy{
+        .present = {},
+        .absent = {},
+        .likely_present = {arise::chem::Group::Methoxy},
+    };
+    const auto spectra = some_spectrum();
+    const auto ranking =
+        rank(compound_formula("Acetic Acid"), pubchem_csv({"Methyl formate", "Acetic Acid"}),
+             spectra, likely_methoxy, kDefaults);
+    ASSERT_TRUE(ranking.ok()) << ranking.error().message;
+    const auto peaks = read_spectra(spectra);
+    ASSERT_TRUE(peaks.ok());
+    for (const auto& candidate : ranking.value().candidates) {
+        EXPECT_EQ(candidate, expected_soft(candidate, peaks.value(), likely_methoxy))
+            << "CID " << candidate.cid;
+    }
+}
+
+TEST(PipelineRank, ACandidateWithoutTheLikelyGroupIsBackBurneredNotEliminated) {
+    const ConfirmedGroups likely_methoxy{
+        .present = {},
+        .absent = {},
+        .likely_present = {arise::chem::Group::Methoxy},
+    };
+    // Two illustrative 13C peaks: acetic acid's own carbon fit is Active, so only the likely
+    // group can move it to the back burner.
+    const SpectraText two_peaks{
+        .carbon = {.format = TextFormat::Pasted, .text = "21\n177\n"},
+        .dept135 = std::nullopt,
+        .dept90 = std::nullopt,
+    };
+    const auto ranking =
+        rank(compound_formula("Acetic Acid"), pubchem_csv({"Methyl formate", "Acetic Acid"}),
+             two_peaks, likely_methoxy, kDefaults);
+    ASSERT_TRUE(ranking.ok()) << ranking.error().message;
+    const auto acid = std::find_if(
+        ranking.value().candidates.begin(), ranking.value().candidates.end(), [](const auto& c) {
+            return c.cid == static_cast<std::uint64_t>(compound_cid("Acetic Acid"));
+        });
+    ASSERT_NE(acid, ranking.value().candidates.end());
+    EXPECT_EQ(acid->verdict.tier, Tier::BackBurner);
+    EXPECT_EQ(
+        acid->verdict.reasons,
+        std::vector<std::string>{"likely present (from 1H): methoxy; the candidate has none"});
+    // Methyl formate has the group: its fit stands alone, and it ranks first.
+    EXPECT_EQ(ranking.value().candidates.front().cid,
+              static_cast<std::uint64_t>(compound_cid("Methyl formate")));
 }
 
 // The whole committed search (9,989 cleaned candidates): rank must give exactly the

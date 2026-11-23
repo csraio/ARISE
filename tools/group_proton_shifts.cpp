@@ -131,9 +131,9 @@ void count_precision(ProtonShifts& row, std::size_t group_index,
                        proton.second <= row.high;
             });
         const bool has = molecule.has_group[group_index];
-        row.hits += hit ? 1 : 0;
-        row.true_hits += hit && has ? 1 : 0;
-        row.with_group += has ? 1 : 0;
+        row.hits += hit ? 1U : 0U;
+        row.true_hits += hit && has ? 1U : 0U;
+        row.with_group += has ? 1U : 0U;
     }
     row.total = molecules.size();
 }

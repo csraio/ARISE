@@ -70,7 +70,8 @@ struct RankedCandidate {
     std::string smiles;
     /// Tier and reasons: Eliminated when the SMILES does not read or a confirmed group is
     /// violated (filter::check_confirmed_groups); otherwise the carbon fit's verdict
-    /// (filter::check_carbon_fit).
+    /// (filter::check_carbon_fit), at least BackBurner when a group confirmed only as likely
+    /// (from 1H) is missing, that group's reasons first.
     filter::Verdict verdict;
     /// From the carbon fit; zero for a candidate eliminated before it.
     int assumed_overlaps = 0;

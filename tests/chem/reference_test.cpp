@@ -1309,6 +1309,8 @@ TEST(Provenance, NoTestContainsASmilesLiteral) {
         {"filter/groups_test.cpp", "C=O"},
         {"filter/groups_test.cpp", "C#N"},
         {"filter/groups_test.cpp", "O-C"},
+        // The same hallmark name in a 1H window row ("O-C carbon (sp3)").
+        {"filter/proton_groups_test.cpp", "O-C"},
         // JSON's empty array, in the expected text of the web client's results.
         {"pipeline/json_test.cpp", "[]"},
         {"pipeline/json_test.cpp", ":[]"},
@@ -1867,7 +1869,7 @@ TEST(GroupProtonShifts, OnlyMethoxyAndBenzeneAreRoundOne) {
             (row.group == Group::Methoxy && row.type == arise::nmr1d::CarbonType::CH3) ||
             (row.group == Group::BenzeneRing && row.type == arise::nmr1d::CarbonType::CH);
         EXPECT_EQ(row.round1, round1) << arise::chem::to_string(row.group) << " " << row.hallmark;
-        enabled += row.round1 ? 1 : 0;
+        enabled += row.round1 ? 1U : 0U;
     }
     EXPECT_EQ(enabled, 2U);
 }

@@ -2,6 +2,7 @@
 
 #include "arise/core/result.hpp"
 #include "arise/io/carbon_csv.hpp"
+#include "arise/io/peak_csv.hpp"
 
 #include <string_view>
 #include <vector>
@@ -31,5 +32,9 @@ namespace arise::io {
 /// DEPT peaks (DEPT-90 or DEPT-135): every line needs an intensity, whose sign is the
 /// phase, so it must be nonzero. Text without peaks is a valid, empty spectrum.
 [[nodiscard]] core::Result<std::vector<DeptPeak>> parse_pasted_dept(std::string_view text);
+
+/// 1H peaks: a shift, then optionally the peak's integral as a number of protons (> 0), with
+/// parse_peak_csv's limits. At least one peak is required.
+[[nodiscard]] core::Result<std::vector<ObservedPeak>> parse_pasted_protons(std::string_view text);
 
 }  // namespace arise::io

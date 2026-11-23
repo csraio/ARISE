@@ -1,0 +1,15 @@
+#pragma once
+// Generated at configure time from data/group_proton_shifts.tsv (src/filter/CMakeLists.txt);
+// do not edit. Contains information from nmrshiftdb2 (www.nmrshiftdb.org), made available
+// under the nmrshiftdb2 Database License (data/NMRSHIFTDB2_LICENSE.txt).
+
+#include <string_view>
+
+namespace arise::filter::detail {
+
+using std::literals::string_view_literals::operator""sv;
+
+inline constexpr std::string_view kMeasuredGroupProtonShifts =
+    R"tsv(@ARISE_GROUP_PROTON_SHIFTS_TEXT@)tsv"sv;
+
+}  // namespace arise::filter::detail
