@@ -71,7 +71,7 @@
     { "name": "release", "configurePreset": "release" },
     { "name": "wasm", "configurePreset": "wasm" },
     { "name": "wasm-release", "configurePreset": "wasm-release", "targets": ["arise_bench"] },
-    { "name": "web", "configurePreset": "web", "targets": ["arise_engine"] }
+    { "name": "web", "configurePreset": "web", "targets": ["arise_engine", "arise_site"] }
   ],
   "testPresets": [
     {
