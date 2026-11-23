@@ -72,6 +72,11 @@ plain JavaScript values and answer in JSON (`arise::pipeline`). The page's JavaS
 engine (or the module named by `ARISE_ENGINE_JS`):
     cmake --preset web && cmake --build --preset web       # after emsdk_env.sh
     "$EMSDK_NODE" --test public/tests/*.test.js
+    python3 -m http.server --directory build/web/site 8000  # then open http://localhost:8000
+The build also assembles the page and the engine in `build/web/site` (`arise_site`), which any
+static web server can serve (ES modules do not load from `file://`). `public/js/main.js` only
+wires the page to the tested modules (engine, peaks, pubchem, groups, results, record); it has
+no tests until browser tests are added.
 `apps/wasm` builds only with Emscripten, so scripts/run_clang_tidy.sh skips it; CI's `web`
 job compiles it with every warning as an error and runs the Node tests.
 
