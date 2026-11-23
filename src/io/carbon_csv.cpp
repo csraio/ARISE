@@ -1,5 +1,6 @@
 #include "arise/io/carbon_csv.hpp"
 
+#include "carbon_rows.hpp"
 #include "csv_table.hpp"
 
 #include <array>
@@ -10,10 +11,6 @@
 
 namespace arise::io {
 namespace {
-
-// Indices into each reader's column table.
-constexpr std::size_t kShift = 0;
-constexpr std::size_t kIntensity = 1;
 
 constexpr std::array kCarbonColumns{
     detail::ColumnSpec{.name = "shift_ppm", .required = true},
@@ -32,41 +29,46 @@ constexpr detail::ShiftWindow kCarbonWindow{
 };
 
 core::Result<core::Ppm> carbon_shift(const detail::TableRow& row) {
-    return detail::shift_in_window(row, kShift, "shift_ppm", kCarbonWindow);
-}
-
-core::Result<CarbonPeak> to_carbon_peak(const detail::TableRow& row) {
-    auto shift = carbon_shift(row);
-    if (!shift.ok()) {
-        return std::move(shift).error();
-    }
-    return CarbonPeak{.shift = shift.value(), .intensity = row.values[kIntensity]};
-}
-
-core::Result<DeptPeak> to_dept_peak(const detail::TableRow& row) {
-    auto shift = carbon_shift(row);
-    if (!shift.ok()) {
-        return std::move(shift).error();
-    }
-    const auto intensity = row.values[kIntensity];
-    assert(intensity.has_value());  // required column
-    if (*intensity == 0.0) {
-        return detail::error_at(core::ErrorCode::OutOfRange, row.line,
-                                "intensity must be nonzero (its sign is the DEPT phase)");
-    }
-    return DeptPeak{.shift = shift.value(), .intensity = *intensity};
+    return detail::shift_in_window(row, detail::kShiftColumn, "shift_ppm", kCarbonWindow);
 }
 
 }  // namespace
 
+namespace detail {
+
+core::Result<CarbonPeak> to_carbon_peak(const TableRow& row) {
+    auto shift = carbon_shift(row);
+    if (!shift.ok()) {
+        return std::move(shift).error();
+    }
+    return CarbonPeak{.shift = shift.value(), .intensity = row.values[kIntensityColumn]};
+}
+
+core::Result<DeptPeak> to_dept_peak(const TableRow& row) {
+    auto shift = carbon_shift(row);
+    if (!shift.ok()) {
+        return std::move(shift).error();
+    }
+    const auto intensity = row.values[kIntensityColumn];
+    assert(intensity.has_value());  // required column
+    if (*intensity == 0.0) {
+        return error_at(core::ErrorCode::OutOfRange, row.line,
+                        "intensity must be nonzero (its sign is the DEPT phase)");
+    }
+    return DeptPeak{.shift = shift.value(), .intensity = *intensity};
+}
+
+}  // namespace detail
+
 core::Result<std::vector<CarbonPeak>> parse_carbon_csv(std::string_view text) {
     return detail::convert_rows<CarbonPeak>(detail::read_numeric_table(text, kCarbonColumns),
-                                            to_carbon_peak);
+                                            detail::to_carbon_peak);
 }
 
 core::Result<std::vector<DeptPeak>> parse_dept_csv(std::string_view text) {
     return detail::convert_rows<DeptPeak>(
-        detail::read_numeric_table(text, kDeptColumns, detail::EmptyTable::Allow), to_dept_peak);
+        detail::read_numeric_table(text, kDeptColumns, detail::EmptyTable::Allow),
+        detail::to_dept_peak);
 }
 
 }  // namespace arise::io

@@ -95,6 +95,18 @@ inline long long compound_cid(std::string_view name) {
     return std::stoll(found->second);
 }
 
+/// PubChem's molecular formula of the test compound `name` (test_compounds.tsv). Fails the
+/// calling test, and returns an empty string, when `name` is not listed.
+inline std::string compound_formula(std::string_view name) {
+    static const auto rows = detail::table(join_chunks(kTestCompoundsChunks), 2);
+    const auto found = rows.find(name);
+    if (found == rows.end()) {
+        ADD_FAILURE() << "no PubChem test compound named '" << name << "'";
+        return {};
+    }
+    return found->second;
+}
+
 /// RDKit's hybridization of each atom of the PubChem test compound `name`, in the atom
 /// order of compound_smiles(name): 1 sp, 2 sp2, 3 sp3, 0 for non-carbons and any other
 /// RDKit hybridization (test_compounds.tsv). Fails the calling test, and returns an empty
