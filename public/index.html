@@ -1,0 +1,168 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>ARISE</title>
+    <link rel="stylesheet" href="css/style.css" />
+    <script type="module" src="js/main.js"></script>
+  </head>
+  <body>
+    <header>
+      <h1>ARISE</h1>
+      <p class="tagline">
+        Candidate structures for a molecular formula, ranked against your 13C and DEPT spectra.
+      </p>
+      <p id="engine-status" class="status" role="status">Loading the engine…</p>
+    </header>
+
+    <main>
+      <!-- 1. Candidates -->
+      <section aria-labelledby="candidates-title">
+        <h2 id="candidates-title"><span class="step">1</span> Candidates</h2>
+        <form id="search-form" class="row">
+          <label for="formula">Molecular formula</label>
+          <input id="formula" name="formula" autocomplete="off" spellcheck="false" placeholder="e.g. C10H14O" required />
+          <button type="submit" id="search-button">Search PubChem</button>
+        </form>
+        <div class="row alternatives">
+          <label class="file">
+            Or load a saved PubChem CSV
+            <input type="file" id="pubchem-file" accept=".csv,text/csv" />
+          </label>
+          <label class="file">
+            Or open saved results
+            <input type="file" id="record-file" accept=".json,application/json" />
+          </label>
+        </div>
+        <p id="candidates-status" class="status" role="status"></p>
+        <p id="candidates-error" class="error" role="alert" hidden></p>
+      </section>
+
+      <!-- 2. Spectra -->
+      <section aria-labelledby="spectra-title">
+        <h2 id="spectra-title"><span class="step">2</span> Spectra</h2>
+        <p class="hint">
+          Paste a peak list (one shift per line, optionally followed by an intensity; tabs,
+          semicolons or spaces between them, a point for decimals), upload a CSV file
+          (columns <code>shift_ppm</code> and <code>intensity</code>), or type into a table. DEPT intensities
+          need their sign: in DEPT-135, CH and CH3 up, CH2 down.
+        </p>
+        <div class="spectra">
+          <div class="spectrum" data-spectrum="carbon" data-kind="carbon" data-title="13C"></div>
+          <div class="spectrum" data-spectrum="dept135" data-kind="dept" data-title="DEPT-135"></div>
+          <div class="spectrum" data-spectrum="dept90" data-kind="dept" data-title="DEPT-90"></div>
+        </div>
+        <button type="button" id="check-button">Read spectra</button>
+        <p id="spectra-error" class="error" role="alert" hidden></p>
+        <div id="peaks" hidden>
+          <h3>Peaks as ARISE reads them</h3>
+          <div class="table-scroll">
+            <table id="peaks-table">
+              <thead>
+                <tr><th scope="col">#</th><th scope="col">Shift (ppm)</th><th scope="col">Possible types</th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- 3. Groups -->
+      <section aria-labelledby="groups-title">
+        <h2 id="groups-title"><span class="step">3</span> Functional groups</h2>
+        <p class="hint">
+          Suggestions never remove a candidate. Only a group you mark <em>present</em> or
+          <em>absent</em> is used: candidates that contradict it are eliminated, with the reason.
+        </p>
+        <label class="check">
+          <input type="checkbox" id="use-dept" checked />
+          Match suggestions on DEPT type as well as shift
+        </label>
+        <p id="groups-error" class="error" role="alert" hidden></p>
+        <div id="groups" class="groups">
+          <p class="hint">Read the spectra to see suggestions.</p>
+        </div>
+      </section>
+
+      <!-- 4. Ranking -->
+      <section aria-labelledby="ranking-title">
+        <h2 id="ranking-title"><span class="step">4</span> Ranking</h2>
+        <button type="button" id="rank-button">Rank candidates</button>
+        <p id="ranking-error" class="error" role="alert" hidden></p>
+        <p id="ranking-note" class="status" role="status"></p>
+        <div id="ranking" hidden>
+          <dl id="ranking-summary" class="summary"></dl>
+          <div class="row">
+            <label for="tier-filter">Show</label>
+            <select id="tier-filter">
+              <option value="all">all candidates</option>
+              <option value="active">active</option>
+              <option value="back-burner">back-burner</option>
+              <option value="eliminated">eliminated</option>
+            </select>
+          </div>
+          <div class="table-scroll">
+            <table id="ranking-table">
+              <thead>
+                <tr>
+                  <th scope="col">Rank</th>
+                  <th scope="col">CID</th>
+                  <th scope="col">Tier</th>
+                  <th scope="col">Carbon environments</th>
+                  <th scope="col">Reasons and notes</th>
+                  <th scope="col">SMILES</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <button type="button" id="more-button" hidden>Show more</button>
+          <div class="row downloads">
+            <button type="button" id="download-record">Download results (re-openable)</button>
+            <button type="button" id="download-csv">Download ranking as CSV</button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <p>
+        ARISE runs entirely in your browser; only the formula search goes to PubChem.
+        Apache-2.0. The built-in shift windows are measured from nmrshiftdb2; see
+        <a href="https://github.com/csraio/ARISE/blob/main/NOTICE">NOTICE</a> for the data terms.
+      </p>
+    </footer>
+
+    <template id="spectrum-template">
+      <fieldset>
+        <legend></legend>
+        <label class="mode">
+          Entry
+          <select class="mode-select">
+            <option value="none">not recorded</option>
+            <option value="paste">paste a list</option>
+            <option value="upload">upload a CSV file</option>
+            <option value="table">type into a table</option>
+          </select>
+        </label>
+        <div class="entry" data-mode="paste" hidden>
+          <textarea rows="8" spellcheck="false" aria-label="Pasted peak list"></textarea>
+        </div>
+        <div class="entry" data-mode="upload" hidden>
+          <input type="file" accept=".csv,text/csv" aria-label="Peak list CSV file" />
+          <p class="file-status status"></p>
+        </div>
+        <div class="entry" data-mode="table" hidden>
+          <table class="entry-table">
+            <thead>
+              <tr><th scope="col">Shift (ppm)</th><th scope="col">Intensity</th></tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+          <button type="button" class="add-row">Add row</button>
+        </div>
+      </fieldset>
+    </template>
+  </body>
+</html>
