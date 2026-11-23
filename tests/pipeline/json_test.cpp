@@ -55,6 +55,15 @@ TEST(PipelineJson, Url) {
     EXPECT_EQ(url_json("https://example.org/a?b=c"), "{\"url\":\"https://example.org/a?b=c\"}");
 }
 
+TEST(PipelineJson, GroupNamesInTheEngineOrder) {
+    std::string expected = "[";
+    for (const auto group : arise::chem::kAllGroups) {
+        expected += (expected.size() > 1 ? "," : "") + json_string(arise::chem::to_string(group));
+    }
+    expected += ']';
+    EXPECT_EQ(arise::pipeline::groups_json(), expected);
+}
+
 TEST(PipelineJson, PeaksListTheirPossibleTypesInOrder) {
     const std::vector<arise::nmr1d::CarbonAssignment> peaks{
         {.shift = Ppm{29.5}, .possible = CarbonTypeSet{CarbonType::CH2}},

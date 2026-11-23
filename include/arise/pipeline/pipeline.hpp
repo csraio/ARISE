@@ -25,6 +25,12 @@ namespace arise::pipeline {
 /// pasted by the chemist (io::parse_pasted_carbon, io::parse_pasted_dept).
 enum class TextFormat : std::uint8_t { Csv, Pasted };
 
+/// "csv" or "pasted".
+[[nodiscard]] std::string_view to_string(TextFormat format) noexcept;
+
+/// The format whose to_string is `name`, if any.
+[[nodiscard]] std::optional<TextFormat> text_format_named(std::string_view name);
+
 struct SpectrumText {
     TextFormat format = TextFormat::Pasted;
     std::string text;
