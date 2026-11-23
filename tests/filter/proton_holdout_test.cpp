@@ -56,15 +56,15 @@ void add_record(const arise::tools::ShiftRecord& record, const arise::chem::Mole
                     inside(*shift, window));
     }
     const bool has = arise::chem::count_group(molecule, window.group) > 0;
-    counts.hits += hit ? 1 : 0;
-    counts.true_hits += hit && has ? 1 : 0;
+    counts.hits += hit ? 1U : 0U;
+    counts.true_hits += hit && has ? 1U : 0U;
     for (const auto& key : arise::tools::key_carbons(molecule)) {
         const auto& shift = record.shifts[key.atom];
         if (arise::chem::kAllGroups[key.group_index] == window.group &&
             key.hallmark == window.hallmark &&
             arise::chem::carbon_type(molecule, key.atom) == window.type && shift.has_value()) {
             ++counts.key_carbons;
-            counts.in_window += inside(*shift, window) ? 1 : 0;
+            counts.in_window += inside(*shift, window) ? 1U : 0U;
             counts.molecules.insert(record.id);
         }
     }

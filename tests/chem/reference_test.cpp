@@ -1869,7 +1869,7 @@ TEST(GroupProtonShifts, OnlyMethoxyAndBenzeneAreRoundOne) {
             (row.group == Group::Methoxy && row.type == arise::nmr1d::CarbonType::CH3) ||
             (row.group == Group::BenzeneRing && row.type == arise::nmr1d::CarbonType::CH);
         EXPECT_EQ(row.round1, round1) << arise::chem::to_string(row.group) << " " << row.hallmark;
-        enabled += row.round1 ? 1 : 0;
+        enabled += row.round1 ? 1U : 0U;
     }
     EXPECT_EQ(enabled, 2U);
 }
