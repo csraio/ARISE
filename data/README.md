@@ -21,7 +21,16 @@
   `tests/data/reference/nmrshiftdb2_13c_all.tsv`, and another holds it to the builder's
   independent RDKit measurement (`tests/data/reference/measurements.tsv`).
 
-`group_shifts.tsv` and `hybridization_shifts.tsv` contain information from nmrshiftdb2 (www.nmrshiftdb.org), which is
+- `group_proton_shifts.tsv`: each functional group's 1H windows (the H on its key carbons,
+  split by the carbon's number of H), with each window's measured precision and the group's
+  base rate, measured over nmrshiftdb2's assigned 1H spectra by
+  `tools/measure_group_proton_shifts` with ARISE's own group definitions. Its `round` column
+  marks the windows the chemist enabled (2026-11-22: methoxy and benzene ring). A test
+  recomputes it from `tests/data/reference/nmrshiftdb2_1h_all.tsv`, and another holds the
+  round-1 windows to the builder's independent RDKit measurement.
+
+`group_shifts.tsv`, `group_proton_shifts.tsv` and `hybridization_shifts.tsv` contain
+information from nmrshiftdb2 (www.nmrshiftdb.org), which is
 made available here under the nmrshiftdb2 Database License (`NMRSHIFTDB2_LICENSE.txt`).
 Clause 4.5 of that licence requires software that relies on this data to be released under
 an OSI-approved open-source licence; ARISE is released under Apache-2.0 (`LICENSE`).

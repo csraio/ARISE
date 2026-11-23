@@ -1,13 +1,16 @@
 # Development-only tools (built with the tests, never part of the engine, CLI or web app).
-add_library(arise_group_shifts STATIC group_shifts.cpp hybridization_shifts.cpp)
+add_library(arise_group_shifts STATIC group_shifts.cpp group_proton_shifts.cpp hybridization_shifts.cpp)
 target_include_directories(arise_group_shifts PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
-target_link_libraries(arise_group_shifts PUBLIC arise::chem)
+target_link_libraries(arise_group_shifts PUBLIC arise::chem arise::filter)
 arise_set_warnings(arise_group_shifts)
 
 if(NOT EMSCRIPTEN)
     add_executable(arise_measure_group_shifts measure_group_shifts.cpp)
     target_link_libraries(arise_measure_group_shifts PRIVATE arise_group_shifts)
     arise_set_warnings(arise_measure_group_shifts)
+    add_executable(arise_measure_group_proton_shifts measure_group_proton_shifts.cpp)
+    target_link_libraries(arise_measure_group_proton_shifts PRIVATE arise_group_shifts)
+    arise_set_warnings(arise_measure_group_proton_shifts)
     add_executable(arise_measure_hybridization_shifts measure_hybridization_shifts.cpp)
     target_link_libraries(arise_measure_hybridization_shifts PRIVATE arise_group_shifts)
     arise_set_warnings(arise_measure_hybridization_shifts)

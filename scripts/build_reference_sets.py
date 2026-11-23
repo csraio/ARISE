@@ -338,12 +338,15 @@ def record_solvent(text, solvents):
     return None
 
 
-def proton_peaks(mol):
+def proton_peaks(mol, dropped=None):
     """[(shift, kind, [H-bearing atom indices])] of the record's 1H spectrum, kind "C" for H
-    on carbon and "X" for H on O/N/S/Se; None (counted) when a peak is unusable."""
+    on carbon and "X" for H on O/N/S/Se; None (counted in `dropped`, by default
+    EXCHANGEABLE_DROPPED) when a peak is unusable."""
+    if dropped is None:
+        dropped = EXCHANGEABLE_DROPPED
     assignment = parse_assignment(mol.GetProp("NMREDATA_ASSIGNMENT"))
     if assignment is None:
-        EXCHANGEABLE_DROPPED["unreadable assignment"] += 1
+        dropped["unreadable assignment"] += 1
         return None
     peaks = []
     seen = set()
@@ -354,17 +357,17 @@ def proton_peaks(mol):
         label = match.group(2)
         seen.add(label)
         if label not in assignment:
-            EXCHANGEABLE_DROPPED["1H peak without an assignment"] += 1
+            dropped["1H peak without an assignment"] += 1
             return None
         bearers = set()
         for number in assignment[label][1]:
             if not 0 < number <= mol.GetNumAtoms():
-                EXCHANGEABLE_DROPPED["assignment names a missing atom"] += 1
+                dropped["assignment names a missing atom"] += 1
                 return None
             atom = mol.GetAtomWithIdx(number - 1)
             if atom.GetSymbol() == "H":
                 if atom.GetDegree() != 1:
-                    EXCHANGEABLE_DROPPED["H bonded to more than one atom"] += 1
+                    dropped["H bonded to more than one atom"] += 1
                     return None
                 atom = atom.GetNeighbors()[0]
             bearers.add(atom.GetIdx())
@@ -374,7 +377,7 @@ def proton_peaks(mol):
         elif elements and elements <= EXCHANGING:
             kind = "X"
         else:
-            EXCHANGEABLE_DROPPED["1H peak on H of several kinds, or on P/Si/B"] += 1
+            dropped["1H peak on H of several kinds, or on P/Si/B"] += 1
             return None
         peaks.append((float(match.group(1)), kind, sorted(bearers)))
     return peaks
@@ -565,6 +568,136 @@ def measure_hybridization_shifts(extract_lines):
 
 
 # ---- PubChem + RDKit oracle -------------------------------------------------------------
+
+
+# ---- 1H windows (the 1H plan, 2026-11-22) -------------------------------------------------
+
+PROTON_DROPPED = collections.Counter()
+
+
+def proton_record(mol):
+    """(Kekule SMILES, per-atom mean 1H shift of the H on that atom) of a record with an
+    assigned 1H spectrum, H on carbon only; None (counted in PROTON_DROPPED) otherwise. The
+    record checks are the 13C extract's (nmrshiftdb_record)."""
+    listed = mol.GetProp("NMREDATA_INCHI") if mol.HasProp("NMREDATA_INCHI") else ""
+    if not same_structure(mol, listed):
+        PROTON_DROPPED["InChI disagrees with the molfile"] += 1
+        return None
+    heavy = sum(1 for a in mol.GetAtoms() if a.GetAtomicNum() > 1)
+    if (not in_scope(mol) or "C" not in {a.GetSymbol() for a in mol.GetAtoms()}
+            or heavy > MAX_HEAVY_ATOMS):
+        PROTON_DROPPED["out of scope"] += 1
+        return None
+    peaks = proton_peaks(mol, PROTON_DROPPED)
+    if peaks is None:
+        return None
+    shifts_of = collections.defaultdict(list)
+    for shift, kind, bearers in peaks:
+        if kind == "C":
+            for index in bearers:
+                shifts_of[index].append(shift)
+    if not shifts_of:
+        PROTON_DROPPED["no 1H peak on carbon"] += 1
+        return None
+    smiles, atoms = kekule_smiles_with_order(mol)
+    fields = []
+    for atom in atoms:
+        index = atom.GetIntProp("molfile_number") - 1
+        if atom.GetSymbol() != "C":
+            fields.append(".")
+        elif index not in shifts_of:
+            fields.append("-")
+        else:
+            fields.append(f"{round(statistics.fmean(shifts_of[index]), 3):g}")
+    return smiles, " ".join(fields)
+
+
+def build_nmrshiftdb_1h(sd_path):
+    """Extract lines (id, Kekule SMILES, per-atom mean 1H shift) of every in-scope record with
+    an assigned 1H spectrum that passes the InChI check, by ascending id."""
+    records = []
+    supplier = Chem.ForwardSDMolSupplier(str(sd_path), removeHs=False, sanitize=True)
+    for mol in supplier:
+        if (mol is None or not mol.HasProp("NMREDATA_ID") or not mol.HasProp("NMREDATA_1D_1H")
+                or not mol.HasProp("NMREDATA_ASSIGNMENT")):
+            continue
+        match = re.search(r"DB_ID=(\d+)", mol.GetProp("NMREDATA_ID"))
+        if not match:
+            continue
+        try:
+            record = proton_record(mol)
+        except Exception:  # an RDKit failure on one record must not stop the build
+            PROTON_DROPPED["RDKit failure"] += 1
+            record = None
+        if record is not None:
+            records.append((int(match.group(1)), *record))
+    records.sort()
+    print(f"nmrshiftdb2: {len(records)} usable 1H records; dropped {dict(PROTON_DROPPED)}",
+          file=sys.stderr)
+    return [f"{db_id}\t{smiles}\t{shifts}" for db_id, smiles, shifts in records]
+
+
+# The round-1 1H windows (the chemist's decision, 2026-11-22), measured independently with
+# RDKit's published fragment patterns: methoxy's CH3 (fr_methoxy atom 2) and the CH of a
+# benzene ring (fr_benzene's atoms with one H).
+PROTON_CHECKS = [("methoxy", "O-CH3 carbon", "CH3", "fr_methoxy", [2], 3),
+                 ("benzene ring", "ring carbons", "CH", "fr_benzene", [0, 1, 2, 3, 4, 5], 1)]
+
+
+def proton_skips():
+    """nmrshiftdb2 ids the 1H cross-check leaves out by hand: known_differences.tsv rows with
+    source "proton" (a molecule whose aromatic rings the two models see differently although
+    aromaticity_differs does not flag it)."""
+    skips = set()
+    for line in (OUT / "known_differences.tsv").read_text(encoding="utf-8").splitlines():
+        fields = line.split("\t")
+        if fields[0] == "proton":
+            skips.add(int(fields[1]))
+    return skips
+
+
+def measure_proton_shifts(extract_lines):
+    """Measurement lines for measurements.tsv: over the 1H extract's lines with even IDs, the
+    1H shifts of the H on each PROTON_CHECKS carbon (RDKit's pattern and H count), one value
+    per carbon per line. An independent check of tools/group_proton_shifts. As in every RDKit
+    comparison, lines whose aromatic atoms RDKit and ARISE's model see differently
+    (aromaticity_differs) are left out, with the signed-off proton_skips(); a "proton-skip"
+    line lists every id left out, so the test measures ARISE on the same lines."""
+    params = Chem.SmilesParserParams()
+    params.removeHs = False  # keep explicit [H] atoms, so atoms match the shift columns
+    hand_skips = proton_skips()
+    lines_used, skipped = [], set()
+    for line in extract_lines:
+        record, smiles, shifts = line.split("\t")
+        if int(record) % 2:
+            continue
+        mol = Chem.MolFromSmiles(smiles, params)
+        shifts = shifts.split(" ")
+        if mol is None or mol.GetNumAtoms() != len(shifts):
+            sys.exit(f"1H extract line {record} does not read with RDKit: {smiles}")
+        if int(record) in hand_skips or aromaticity_differs(mol):
+            skipped.add(int(record))
+            continue
+        lines_used.append((int(record), mol, shifts))
+    result = []
+    for group, hallmark, htype, fragment, positions, hydrogens in PROTON_CHECKS:
+        values, molecules = [], set()
+        pattern = FRAGMENT_PATTERNS[fragment]
+        for record, mol, shifts in lines_used:
+            atoms = {m[p] for m in mol.GetSubstructMatches(pattern) for p in positions}
+            for index in sorted(atoms):
+                atom = mol.GetAtomWithIdx(index)
+                if (atom.GetTotalNumHs(includeNeighbors=True) == hydrogens
+                        and shifts[index] not in (".", "-")):
+                    values.append(float(shifts[index]))
+                    molecules.add(record)
+        data = sorted(values)
+        cuts = statistics.quantiles(data, n=100, method="inclusive")
+        numbers = [data[0], cuts[0], statistics.median(data), cuts[98], data[-1]]
+        result.append(f"proton-shift\t{group}\t{hallmark}\t{htype}\t{len(data)}\t"
+                      f"{len(molecules)}\t" + "\t".join(f"{x:.4f}" for x in numbers))
+    result.append("proton-skip\t" + " ".join(str(i) for i in sorted(skipped)))
+    return result
 
 
 def pubchem_rows(path):
@@ -1622,6 +1755,19 @@ def main():
          "# (kind C = H on carbon, X = H on O, N, S or Se), derived HSQC as h:c pairs."]
         + build_exchangeable_cases(args.nmrshiftdb),
         [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
+    proton_all = build_nmrshiftdb_1h(args.nmrshiftdb)
+    (OUT / "nmrshiftdb2_1h_all.tsv").write_text(header(
+        ["# Contains information from nmrshiftdb2 (www.nmrshiftdb.org), which is made",
+         "# available here under the nmrshiftdb2 Database License (NMRSHIFTDB2_LICENSE.txt,",
+         f"# {LICENSE_URL}).",
+         "# Every in-scope record with an assigned 1H spectrum that passes the InChI check,",
+         "# for measuring each group's 1H windows (tools/measure_group_proton_shifts). Only H",
+         "# on carbon; a carbon whose H have several peaks gets their mean.",
+         f"# Dropped: {', '.join(f'{n} {why}' for why, n in sorted(PROTON_DROPPED.items()))}.",
+         "# Columns: nmrshiftdb2 id, Kekule SMILES, per-atom mean 1H shift in ppm of the H on",
+         "# that carbon ('.' = not carbon, '-' = carbon without an assigned 1H shift)."]
+        + proton_all,
+        [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
     (OUT / "measurements.tsv").write_text(header(
         ["# Measured from nmrshiftdb2 (made available under the nmrshiftdb2 Database License,",
          "# NMRSHIFTDB2_LICENSE.txt) over in-scope records that pass the InChI check.",
@@ -1630,8 +1776,15 @@ def main():
          "# (statistics.quantiles, inclusive method) of the C=N carbon shift (ppm).",
          "# hybridization-shift: sp/sp2/sp3 (RDKit, uncharged carbons) over the 13C extract's",
          "# lines with even IDs: n carbons, molecules, min, 0.1st, 1st percentile, median,",
-         "# 99th, 99.9th percentile, max (ppm; statistics.quantiles n=1000, inclusive)."]
-        + measure_nmrshiftdb(args.nmrshiftdb) + measure_hybridization_shifts(nmr_all),
+         "# 99th, 99.9th percentile, max (ppm; statistics.quantiles n=1000, inclusive).",
+         "# proton-shift: group, hallmark, H count, over the 1H extract's lines with even IDs",
+         "# (RDKit's fragment pattern and H count, PROTON_CHECKS in the builder): n carbons,",
+         "# molecules, min, 1st percentile, median, 99th percentile, max (ppm;",
+         "# statistics.quantiles n=100, inclusive).",
+         "# proton-skip: the ids proton-shift leaves out (aromaticity_differs, and the",
+         "# known_differences.tsv rows with source proton)."]
+        + measure_nmrshiftdb(args.nmrshiftdb) + measure_hybridization_shifts(nmr_all)
+        + measure_proton_shifts(proton_all),
         [f"{NMRSHIFTDB_URL} sha256={sha256(args.nmrshiftdb)}"]))
     # What the hand-written tests read by name: PubChem compounds, rule-made compounds and
     # the named syntax cases.

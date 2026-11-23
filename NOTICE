@@ -5,7 +5,8 @@ The ARISE source code is licensed under the Apache License, Version 2.0 (LICENSE
 
 Data in this repository from third parties keeps its own terms, recorded beside it:
 
-- data/group_shifts.tsv, tests/data/reference/nmrshiftdb2_*.tsv and the nmrshiftdb2 rows of
+- data/group_shifts.tsv, data/group_proton_shifts.tsv, data/hybridization_shifts.tsv,
+  tests/data/reference/nmrshiftdb2_*.tsv and the nmrshiftdb2 rows of
   tests/data/reference/chebi_classes.tsv contain information from nmrshiftdb2
   (www.nmrshiftdb.org), made available under the nmrshiftdb2 Database License
   (data/NMRSHIFTDB2_LICENSE.txt, tests/data/reference/NMRSHIFTDB2_LICENSE.txt).
