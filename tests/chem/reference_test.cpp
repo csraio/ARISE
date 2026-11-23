@@ -13,6 +13,7 @@
 #include "arise/io/number.hpp"
 #include "arise/io/peak_csv.hpp"
 #include "arise/io/pubchem.hpp"
+#include "group_proton_shifts.hpp"
 #include "group_shifts.hpp"
 #include "hybridization_shifts.hpp"
 #include "reference_fixtures.hpp"
@@ -27,6 +28,7 @@
 #include <cstddef>
 #include <iostream>
 #include <map>
+#include <optional>
 #include <set>
 #include <string>
 #include <string_view>
@@ -1019,6 +1021,9 @@ std::string_view source_label(std::string_view source) {
     if (source == "bmrb") {
         return "BMRB";
     }
+    if (source == "proton") {
+        return "RDKit (1H)";
+    }
     return source == "pubchem" ? std::string_view{"PubChem"} : source;
 }
 
@@ -1727,6 +1732,284 @@ TEST(Provenance, GroupShiftsAreRecomputedFromTheExtract) {
     EXPECT_EQ(arise::test::join_chunks(arise::test::kGroupShiftsChunks), measured)
         << "rerun build/dev/tools/arise_measure_group_shifts";
 #endif
+}
+
+// ---- Group 1H windows (tools/group_proton_shifts) ------------------------------------
+// The shift numbers in this test are arbitrary inputs, not measured values.
+
+// One extract line for the test compound `name`: each carbon gets the shift given for its
+// number of H (3, 2 or 1), or '-' if none is given; other atoms get '.'.
+std::string proton_line(long long id, std::string_view name,
+                        const std::map<int, std::string>& shift_by_h) {
+    const auto smiles = arise::test::compound_smiles(name);
+    const auto molecule = arise::chem::parse_smiles(smiles);
+    EXPECT_TRUE(molecule.ok()) << name;
+    std::string shifts;
+    for (std::size_t atom = 0; molecule.ok() && atom < molecule.value().atoms().size(); ++atom) {
+        std::string value = ".";
+        if (molecule.value().atoms()[atom].element == arise::chem::Element::C) {
+            const auto found = shift_by_h.find(molecule.value().hydrogen_count(atom));
+            value = found == shift_by_h.end() ? "-" : found->second;
+        }
+        shifts += (shifts.empty() ? "" : " ") + value;
+    }
+    return std::to_string(id) + "\t" + smiles + "\t" + shifts + "\n";
+}
+
+const arise::tools::ProtonShifts* proton_row(const std::vector<arise::tools::ProtonShifts>& rows,
+                                             Group group, std::string_view hallmark,
+                                             arise::nmr1d::CarbonType type) {
+    const auto found = std::find_if(rows.begin(), rows.end(), [&](const auto& row) {
+        return row.group == group && row.hallmark == hallmark && row.type == type;
+    });
+    return found == rows.end() ? nullptr : &*found;
+}
+
+// The numbers of one measured window that the tests below check.
+struct WindowSummary {
+    std::size_t n = 0;
+    std::size_t molecules = 0;
+    double low = 0;
+    double high = 0;
+    std::size_t hits = 0;
+    std::size_t true_hits = 0;
+    std::size_t with_group = 0;
+    std::size_t total = 0;
+    bool round1 = false;
+
+    friend bool operator==(const WindowSummary&, const WindowSummary&) = default;
+    friend std::ostream& operator<<(std::ostream& out, const WindowSummary& w) {
+        return out << "n " << w.n << ", molecules " << w.molecules << ", window " << w.low << "-"
+                   << w.high << ", hits " << w.hits << "/" << w.true_hits << ", with "
+                   << w.with_group << "/" << w.total << ", round1 " << w.round1;
+    }
+};
+
+std::optional<WindowSummary> window_summary(const std::vector<arise::tools::ProtonShifts>& rows,
+                                            Group group, std::string_view hallmark,
+                                            arise::nmr1d::CarbonType type) {
+    const auto* row = proton_row(rows, group, hallmark, type);
+    if (row == nullptr) {
+        return std::nullopt;
+    }
+    return WindowSummary{
+        .n = row->n,
+        .molecules = row->molecules,
+        .low = row->low,
+        .high = row->high,
+        .hits = row->hits,
+        .true_hits = row->true_hits,
+        .with_group = row->with_group,
+        .total = row->total,
+        .round1 = row->round1,
+    };
+}
+
+std::vector<arise::tools::ProtonShifts> small_proton_measurement() {
+    const std::string extract =
+        // A shift on anisole's ring carbon without H (0) must be ignored: no 1H there.
+        "# comment line\n" + proton_line(2, "Anisole", {{3, "3.8"}, {1, "7.2"}, {0, "7.15"}}) +
+        proton_line(3, "Anisole", {{3, "9.9"}, {1, "9.9"}}) +  // odd ID: hold-out
+        proton_line(4, "Toluene", {{3, "2.3"}, {1, "7.1"}}) +
+        proton_line(6, "Methyl formate", {{3, "3.7"}, {1, "8.0"}}) +
+        proton_line(8, "Dimethyl Ether", {{3, "3.2"}}) +
+        proton_line(10, "Methanol", {{3, "3.4"}}) +            // a CH3 in the window, no methoxy
+        proton_line(12, "Ethanol", {{3, "1.2"}, {2, "3.6"}});  // a CH2 in the window
+    const auto records = arise::tools::parse_shift_extract(extract);
+    EXPECT_EQ(records.size(), 7U);
+    return arise::tools::measure_group_proton_shifts(records);
+}
+
+TEST(GroupProtonShifts, MeasuresMethoxyWindowAndPrecisionOnEvenIds) {
+    // OCH3 protons of anisole, methyl formate and dimethyl ether (two carbons); fewer than
+    // 100 molecules, so the window is the full range 3.2-3.8. Even molecules with a CH3
+    // proton in it: anisole, methyl formate, dimethyl ether and methanol (toluene's 2.3 is
+    // outside; ethanol's 3.6 is a CH2, not a CH3); methanol has no methoxy. 3 of the 6 even
+    // molecules have one.
+    const auto rows = small_proton_measurement();
+    EXPECT_EQ(window_summary(rows, Group::Methoxy, "O-CH3 carbon", arise::nmr1d::CarbonType::CH3),
+              (WindowSummary{.n = 4,
+                             .molecules = 3,
+                             .low = 3.2,
+                             .high = 3.8,
+                             .hits = 4,
+                             .true_hits = 3,
+                             .with_group = 3,
+                             .total = 6,
+                             .round1 = true}));
+}
+
+TEST(GroupProtonShifts, MeasuresBenzeneWindowAndPrecisionOnEvenIds) {
+    // Ring CH protons of anisole (7.2) and toluene (7.1); the formate CH at 8.0 is a CH
+    // outside the window.
+    const auto rows = small_proton_measurement();
+    EXPECT_EQ(
+        window_summary(rows, Group::BenzeneRing, "ring carbons", arise::nmr1d::CarbonType::CH),
+        (WindowSummary{.n = 10,
+                       .molecules = 2,
+                       .low = 7.1,
+                       .high = 7.2,
+                       .hits = 2,
+                       .true_hits = 2,
+                       .with_group = 2,
+                       .total = 6,
+                       .round1 = true}));
+    // Quaternary carbons carry no 1H: anisole's ipso carbon gives no row.
+    EXPECT_EQ(window_summary(rows, Group::BenzeneRing, "ring carbons", arise::nmr1d::CarbonType::C),
+              std::nullopt);
+}
+
+TEST(GroupProtonShifts, OnlyMethoxyAndBenzeneAreRoundOne) {
+    // The chemist's decision, 2026-11-22.
+    std::size_t enabled = 0;
+    for (const auto& row : small_proton_measurement()) {
+        const bool round1 =
+            (row.group == Group::Methoxy && row.type == arise::nmr1d::CarbonType::CH3) ||
+            (row.group == Group::BenzeneRing && row.type == arise::nmr1d::CarbonType::CH);
+        EXPECT_EQ(row.round1, round1) << arise::chem::to_string(row.group) << " " << row.hallmark;
+        enabled += row.round1 ? 1 : 0;
+    }
+    EXPECT_EQ(enabled, 2U);
+}
+
+TEST(GroupProtonShifts, WritesTwoDecimalShiftsAndThreeDecimalRates) {
+    const std::string extract = proton_line(2, "Anisole", {{3, "3.806"}, {1, "7.2"}}) +
+                                proton_line(4, "Toluene", {{3, "2.3"}, {1, "7.1"}}) +
+                                proton_line(6, "Methanol", {{3, "3.806"}});
+    const auto rows =
+        arise::tools::measure_group_proton_shifts(arise::tools::parse_shift_extract(extract));
+    const auto* methoxy =
+        proton_row(rows, Group::Methoxy, "O-CH3 carbon", arise::nmr1d::CarbonType::CH3);
+    ASSERT_NE(methoxy, nullptr);
+    const auto tsv = arise::tools::to_tsv(std::vector<arise::tools::ProtonShifts>{*methoxy});
+    // group, hallmark, type, n, molecules, min, p1, p5, median, p95, p99, max, low, high,
+    // hits, true hits, precision, with group, molecules, base, round.
+    EXPECT_EQ(tsv,
+              "methoxy\tO-CH3 carbon\tCH3\t1\t1\t3.81\t3.81\t3.81\t3.81\t3.81\t3.81\t"
+              "3.81\t3.81\t3.81\t2\t1\t0.500\t1\t3\t0.333\t1\n");
+}
+
+TEST(Provenance, GroupProtonShiftsAreRecomputedFromTheExtract) {
+    // data/group_proton_shifts.tsv must be exactly what ARISE's key atoms measure over the
+    // committed nmrshiftdb2 1H extract, so no number in it can be typed or stale.
+#ifdef __EMSCRIPTEN__
+    GTEST_SKIP() << "measured offline; far slower under wasm checks";
+#else
+    const auto extract = arise::test::join_chunks(arise::test::kNmrshiftdb1hChunks);
+    const auto records = arise::tools::parse_shift_extract(extract);
+    EXPECT_GT(records.size(), 10000U);
+    const auto measured = std::string{arise::tools::group_proton_shifts_header()} +
+                          arise::tools::to_tsv(arise::tools::measure_group_proton_shifts(records));
+    EXPECT_EQ(arise::test::join_chunks(arise::test::kGroupProtonShiftsChunks), measured)
+        << "rerun build/dev/tools/arise_measure_group_proton_shifts";
+#endif
+}
+
+// Differences between one group_proton_shifts.tsv row (`fields`) and RDKit's measurement
+// of the same window (`rdkit`: n, molecules, min, 1st, median, 99th, max). Counts must be
+// equal; shifts within the file's last decimal (0.01 ppm, rounded to half of it).
+std::vector<std::string> proton_row_differences(const std::vector<std::string_view>& fields,
+                                                const std::vector<std::string_view>& rdkit) {
+    constexpr double kHalfLastDecimal = 0.0051;
+    constexpr std::size_t kRdkitFields = 7;
+    if (fields.size() < 12 || rdkit.size() != kRdkitFields) {
+        return {"malformed row"};
+    }
+    // Columns of the file: 3 n, 4 molecules, 5 min, 6 p1, 8 median, 10 p99, 11 max.
+    constexpr std::array<std::size_t, kRdkitFields> kColumns{3, 4, 5, 6, 8, 10, 11};
+    std::vector<std::string> differences;
+    for (std::size_t i = 0; i < kRdkitFields; ++i) {
+        const auto ours = fields[kColumns[i]];
+        const bool count = i < 2;
+        if (count ? ours != rdkit[i]
+                  : std::abs(decimal(ours) - decimal(rdkit[i])) > kHalfLastDecimal) {
+            differences.push_back("column " + std::to_string(kColumns[i]) + ": " +
+                                  std::string{ours} + " vs RDKit " + std::string{rdkit[i]});
+        }
+    }
+    return differences;
+}
+
+// RDKit's "proton-shift" measurements, keyed "group/hallmark/H count": n, molecules, min,
+// 1st, median, 99th, max.
+std::map<std::string, std::vector<std::string_view>> rdkit_proton_rows() {
+    std::map<std::string, std::vector<std::string_view>> rdkit;
+    for (auto& row : measurements("proton-shift")) {
+        if (row.size() != 11) {
+            ADD_FAILURE() << "malformed proton-shift row";
+            continue;
+        }
+        rdkit.emplace(std::string{row[1]} + "/" + std::string{row[2]} + "/" + std::string{row[3]},
+                      std::vector<std::string_view>(row.begin() + 4, row.end()));
+    }
+    return rdkit;
+}
+
+// The 1H extract's records without the ids the builder's RDKit measurement left out.
+std::vector<arise::tools::ShiftRecord> records_rdkit_measured(std::string_view extract) {
+    const auto skip_rows = measurements("proton-skip");
+    std::set<long long> skipped;
+    for (const auto& row : skip_rows) {
+        for (const auto id : integers(row[1])) {
+            skipped.insert(id);
+        }
+    }
+    EXPECT_EQ(skip_rows.size(), 1U);
+    EXPECT_FALSE(skipped.empty());
+    auto records = arise::tools::parse_shift_extract(extract);
+    std::erase_if(records, [&](const auto& record) { return skipped.contains(record.id); });
+    return records;
+}
+
+TEST(Provenance, GroupProtonShiftsMatchRdkitsMeasurement) {
+    // The builder measures the round-1 windows (methoxy CH3, benzene ring CH) with RDKit's
+    // published fragment patterns and Python's statistics (measurements.tsv, "proton-shift"),
+    // leaving out the lines whose aromaticity the two models see differently ("proton-skip",
+    // as every RDKit comparison does). ARISE's tool, on the same lines, must agree.
+#ifdef __EMSCRIPTEN__
+    GTEST_SKIP() << "measured offline; far slower under wasm checks";
+#else
+    const auto rdkit = rdkit_proton_rows();
+    EXPECT_EQ(rdkit.size(), 2U);
+    const auto extract = arise::test::join_chunks(arise::test::kNmrshiftdb1hChunks);
+    const auto tsv = arise::tools::to_tsv(
+        arise::tools::measure_group_proton_shifts(records_rdkit_measured(extract)));
+    std::vector<std::string> problems;
+    std::size_t matched = 0;
+    for (const auto line : data_lines(tsv)) {
+        const auto fields = split(line, '\t');
+        const auto found = rdkit.find(std::string{fields[0]} + "/" + std::string{fields[1]} + "/" +
+                                      std::string{fields[2]});
+        if (found == rdkit.end()) {
+            continue;  // measured with ARISE's key atoms only
+        }
+        ++matched;
+        for (const auto& difference : proton_row_differences(fields, found->second)) {
+            problems.push_back(std::string{line} + ": " + difference);
+        }
+        if (fields.back() != "1") {
+            problems.push_back(std::string{line} + ": RDKit checks only round-1 windows");
+        }
+    }
+    EXPECT_EQ(problems, std::vector<std::string>{});
+    EXPECT_EQ(matched, rdkit.size());
+#endif
+}
+
+TEST(Provenance, DocumentedGroupProtonShiftsAreTheMeasuredOnes) {
+    // The doc's 1H window table rows must be exactly group_proton_shifts.tsv's.
+    const auto text = arise::test::join_chunks(arise::test::kGroupProtonShiftsChunks);
+    std::size_t rows = 0;
+    for (const auto line : data_lines(text)) {
+        std::string row = "|";
+        for (const auto field : split(line, '\t')) {
+            row.append(" ").append(field).append(" |");
+        }
+        ++rows;
+        EXPECT_NE(group_definitions_text().find(row), std::string::npos)
+            << "doc lacks the measured row: " << row;
+    }
+    EXPECT_GT(rows, 20U);
 }
 
 // ---- Hybridization shifts (tools/hybridization_shifts) -----------------------------

@@ -53,6 +53,10 @@ arise_embed_chunks("${ARISE_REFERENCE_DIR}/nmrshiftdb2_13c_all.tsv"
                    ARISE_NMRSHIFTDB_ALL_CHUNKS ARISE_NMRSHIFTDB_ALL_CHUNK_COUNT)
 arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/group_shifts.tsv"
                    ARISE_GROUP_SHIFTS_CHUNKS ARISE_GROUP_SHIFTS_CHUNK_COUNT)
+arise_embed_chunks("${ARISE_REFERENCE_DIR}/nmrshiftdb2_1h_all.tsv"
+                   ARISE_NMRSHIFTDB_1H_CHUNKS ARISE_NMRSHIFTDB_1H_CHUNK_COUNT)
+arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/group_proton_shifts.tsv"
+                   ARISE_GROUP_PROTON_SHIFTS_CHUNKS ARISE_GROUP_PROTON_SHIFTS_CHUNK_COUNT)
 arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/hybridization_shifts.tsv"
                    ARISE_HYBRIDIZATION_SHIFTS_CHUNKS ARISE_HYBRIDIZATION_SHIFTS_CHUNK_COUNT)
 arise_embed_chunks("${PROJECT_SOURCE_DIR}/data/solvent_peaks.tsv"
