@@ -299,7 +299,7 @@ function groupItem(choice) {
     radio.addEventListener("change", () => {
       state.ticks[choice.group] = value;
     });
-    label.append(radio, value === "likely" ? " likely (back burner)" : ` ${value}`);
+    label.append(radio, ` ${value}`);
     choices.append(label);
   }
   head.append(name, choices);
