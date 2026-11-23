@@ -202,7 +202,7 @@ files):
 | bridged-benzene | 1 | RDKit | a bridged six-ring outside RDKit's smallest-ring set; ARISE finds the benzene |
 | ynol | 1 | RDKit | OH on an alkyne carbon: neither alcohol nor enol |
 | chebi-error | 12 | ChEBI | ChEBI asserts a group whose atoms the structure lacks (e.g. "amine" with no N) |
-| phenol-ester | 1 | ChEBI | ChEBI files an aryl acetate under phenols; phenol means an OH on the aromatic ring (row 12) |
+| acetylated-phenol | 1 | ChEBI | ChEBI files a phenol's acetate ester under the parent phenol (syringaresinol diacetate); both ring OH are acetylated, so no phenol remains (row 12 needs an OH on the aromatic ring) |
 | oxime-ether | 11 | ChEBI | ChEBI calls oxime ethers oximes and ethers; ARISE assigns no group (user decision) |
 | tautomer | 10 | ChEBI | ChEBI classifies another tautomer (N-hydroxyguanidine, enol/keto forms, 4-iminopyridine) |
 | pyridone-scope | 5 | ChEBI | ring with N=C, two ring C=O, or a dihydro ring: outside row 13 |
