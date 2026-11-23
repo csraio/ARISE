@@ -36,3 +36,4 @@ pyridine ring	ring carbons	{C, CH}	5277	912	68.0	100.1	111.7	137.1	160.0	165.4	1
 furan ring	ring carbons	{C, CH}	1755	361	61.2	96.1	104.1	134.2	158.9	163.7	167.0
 pyrrole ring	ring carbons	{C, CH}	2569	552	57.8	93.3	102.5	125.4	141.5	150.0	158.0
 thiophene ring	ring carbons	{C, CH}	1066	235	65.1	98.8	109.5	130.7	151.2	163.8	174.7
+methoxy	O-CH3 carbon	{CH3}	3423	2234	46.4	49.3	51.2	55.5	60.9	62.7	67.2
